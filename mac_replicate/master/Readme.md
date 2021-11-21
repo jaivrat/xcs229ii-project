@@ -13,4 +13,5 @@ conda activate rlproject
 
 ##### in case you need to delete the created env
 conda deactivate
+
 conda remove --name rlproject --all
