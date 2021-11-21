@@ -6,6 +6,9 @@ https://github.com/AI4Finance-Foundation/Deep-Reinforcement-Learning-for-Automat
 
 /Users/jvsingh/work/stanford/XCS229ii-ML-Strategy-RL/Project/xcs229ii-project/mac_replicate
 
+### This uses openmpi
+`brew install cmake openmpi`
+
 ### Create conda environment
 Please change last line of `rlproject_env.yaml` as per your directory settings.
 
