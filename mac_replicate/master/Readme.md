@@ -14,6 +14,6 @@ https://github.com/AI4Finance-Foundation/Deep-Reinforcement-Learning-for-Automat
 
 ### In case you need to delete the created env
 
-conda deactivate
+`conda deactivate`
 
-conda remove --name rlproject --all
+`conda remove --name rlproject --all`
