@@ -17,6 +17,8 @@ dependencies:
   - pytest>=5.3.2,<6.0.0
   - setuptools>=41.4.0,<42.0.0
   - wheel>=0.33.6,<0.34.0
+  - notebook
+  - pyfolio
   - pip:
     # For pip packages
     - gym
