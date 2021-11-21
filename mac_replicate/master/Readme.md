@@ -8,6 +8,7 @@ https://github.com/AI4Finance-Foundation/Deep-Reinforcement-Learning-for-Automat
 
 ### install brew if it is not installed
 `ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"`
+
 `git -C /usr/local/Homebrew/Library/Taps/homebrew/homebrew-core fetch --unshallow`
 
 ### This uses openmpi
