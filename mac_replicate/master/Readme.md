@@ -24,6 +24,8 @@ Please change last line of `rlproject_env.yaml` as per your directory settings.
 ### cd to directory where you have run_DRL.py (Make sure you have activated rlproject env above)
 `python run_DRL.py`
 
+Above runs for abut 1.5 hrs. You will see files created in **results** folder
+
 ### In case you need to delete the created env
 
 `conda deactivate`
