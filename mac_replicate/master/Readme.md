@@ -6,6 +6,9 @@ https://github.com/AI4Finance-Foundation/Deep-Reinforcement-Learning-for-Automat
 
 /Users/jvsingh/work/stanford/XCS229ii-ML-Strategy-RL/Project/xcs229ii-project/mac_replicate
 
+### install brew if it is not installed
+`ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"`
+
 ### This uses openmpi
 `brew install cmake openmpi`
 
