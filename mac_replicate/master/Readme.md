@@ -21,6 +21,9 @@ Please change last line of `rlproject_env.yaml` as per your directory settings.
 
 `conda activate rlproject`
 
+### cd to directory where you have run_DRL.py (Make sure you have activated rlproject env above)
+`python run_DRL.py`
+
 ### In case you need to delete the created env
 
 `conda deactivate`
