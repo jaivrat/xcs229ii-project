@@ -1,0 +1,8 @@
+MAC replication - This is supposed be temporary folder. Trying a temporary
+clean mac folder
+
+1. Download
+   https://github.com/AI4Finance-Foundation/Deep-Reinforcement-Learning-for-Automated-Stock-Trading-Ensemble-Strategy-ICAIF-2020
+as "master" folder at a MAC_LOCATION
+(In my case 
+MAC_LOCATION = /Users/jvsingh/work/stanford/XCS229ii-ML-Strategy-RL/Project/xcs229ii-project/mac_replicate
