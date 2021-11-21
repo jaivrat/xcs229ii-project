@@ -1,5 +1,4 @@
-MAC replication - This is supposed be temporary folder. Trying a temporary
-clean mac folder
+MAC replication 
 
 ### Download
 https://github.com/AI4Finance-Foundation/Deep-Reinforcement-Learning-for-Automated-Stock-Trading-Ensemble-Strategy-ICAIF-2020
