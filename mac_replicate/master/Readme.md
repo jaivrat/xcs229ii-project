@@ -7,11 +7,10 @@ as "master" folder at a MAC_LOCATION
 (In my case 
 MAC_LOCATION = /Users/jvsingh/work/stanford/XCS229ii-ML-Strategy-RL/Project/xcs229ii-project/mac_replicate
 
-##### Create conda environment
+### Create conda environment
 conda env create --file rlproject_env.yaml
 conda activate rlproject
 
-##### in case you need to delete the created env
+### In case you need to delete the created env
 conda deactivate
-
 conda remove --name rlproject --all
