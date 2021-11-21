@@ -10,5 +10,8 @@ Projects for xcs229ii-project [James/Benjamin/Jai Vrat Singh]
 ### issues while installing on Win
 * DLL error solution: https://stackoverflow.com/questions/56433666/openai-spinning-up-problem-importerror-dll-load-failed-the-specified-procedur/58653569#58653569
 * changed config/config.py line 23 
-TRAINED_MODEL_DIR = f"trained_models/{now}" => TRAINED_MODEL_DIR = r"trained_models/{now}"
+TRAINED_MODEL_DIR = f"trained_models/{now}" 
+=> 
+timestampStr = now.strftime("%d-%b-%Y %H%M%S")
+TRAINED_MODEL_DIR = r"trained_models/"+timestampStr
 * 
