@@ -1,0 +1,23 @@
+name: rlproject
+channels:
+  - default
+dependencies:
+  - pip
+  - python=3.7
+  - numpy
+  - pandas
+  - scikit-learn
+  - joblib
+  - matplotlib=3.2.1
+  - pytest>=5.3.2,<6.0.0
+  - setuptools>=41.4.0,<42.0.0
+  - wheel>=0.33.6,<0.34.0
+  - notebook
+  - pyfolio
+  - pip:
+    # For pip packages
+    - gym
+    - stockstats
+    - stable-baselines[mpi]
+    - tensorflow==1.15.4
+prefix: $HOME/anaconda3/envs/rlproject
