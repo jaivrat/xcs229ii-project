@@ -96,11 +96,11 @@ class StockEnvTrain(gym.Env):
         # print(actions)
 
         self.jai_iter_number += 1
-        if self.jai_iter_number%1000 == 0:
-            print(f"Jai Debug: Step - iteration {self.jai_iter_number} complete..")
+        #if self.jai_iter_number%1000 == 0:
+        #    print(f"Jai Debug: Step - iteration {self.jai_iter_number} complete..")
 
         if self.terminal:
-            print(f"Jai Debug: Step - terminal at jai_iter_number:{self.jai_iter_number}")
+            #print(f"Jai Debug: Step - terminal at jai_iter_number:{self.jai_iter_number}")
 
             plt.plot(self.asset_memory,'r')
             plt.savefig('results/account_value_train.png')
