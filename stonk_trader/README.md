@@ -15,3 +15,10 @@ First check location of your anaconda3 folder. I have used $HOME/anaconda3/envs/
 This is mentioned in last line of the rlproject_env.yaml file. Change it accordingly.
 
 `conda env create --file rlproject_env.yaml`
+
+
+### 3. Activate your environment
+`conda activate rlproject`
+
+(If you need to deactivate after activation, use this)
+`conda deactivate`
