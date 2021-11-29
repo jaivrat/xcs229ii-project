@@ -22,8 +22,14 @@ TRAINING_DATA_FILE = "data/dow_30_2009_2020.csv"
 now = datetime.datetime.now()
 TRAINED_MODEL_DIR = f"trained_models/{now}"
 os.makedirs(TRAINED_MODEL_DIR)
+
+RESULTS_DIR = "results"
+if not os.path.exists(RESULTS_DIR):
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+
 TURBULENCE_DATA = "data/dow30_turbulence_index.csv"
 
 TESTING_DATA_FILE = "test.csv"
 
+PREPROCESSED_PATH = "done_data.csv"
 
