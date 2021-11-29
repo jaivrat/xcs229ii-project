@@ -5,3 +5,10 @@ in https://github.com/AI4Finance-Foundation/Deep-Reinforcement-Learning-for-Auto
 
 Paper: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3690996
 
+
+
+## Creating environment to run this
+### Install anaconda
+
+### Create environment using the yaml file
+`conda env create --file rlproject_env.yaml`
