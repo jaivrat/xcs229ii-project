@@ -12,6 +12,6 @@ Paper: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3690996
 
 ### 2. Create environment using the yaml file
 First check location of your anaconda3 folder. I have used $HOME/anaconda3/envs/rlproject where the environment will be created.
-This is mentioned in last line of the rlproject_env.yaml file
+This is mentioned in last line of the rlproject_env.yaml file. Change it accordingly.
 
 `conda env create --file rlproject_env.yaml`
