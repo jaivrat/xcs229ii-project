@@ -8,7 +8,10 @@ Paper: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3690996
 
 
 ## Creating environment to run this
-### Install anaconda
+### 1. Install anaconda
 
-### Create environment using the yaml file
+### 2. Create environment using the yaml file
+First check location of your anaconda3 folder. I have used $HOME/anaconda3/envs/rlproject where the environment will be created.
+This is mentioned in last line of the rlproject_env.yaml file
+
 `conda env create --file rlproject_env.yaml`
