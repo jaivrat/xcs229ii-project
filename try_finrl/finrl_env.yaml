@@ -1,0 +1,15 @@
+name: finrl_env
+channels:
+  - default
+dependencies:
+  - pip
+  - python=3.7
+  - numpy
+  - pandas
+  - notebook
+  - pip:
+    # For pip packages
+    - FinRL
+    - ElegantRL
+    - ray
+prefix: $HOME/anaconda3/envs/finrl_env
