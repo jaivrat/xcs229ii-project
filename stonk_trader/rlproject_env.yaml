@@ -13,11 +13,12 @@ dependencies:
   - setuptools>=41.4.0,<42.0.0
   - wheel>=0.33.6,<0.34.0
   - notebook
-  - pyfolio
   - pip:
     # For pip packages
+    - pyfolio
     - gym
     - stockstats
     - stable-baselines[mpi]
     - tensorflow==1.15.4
+    - FinRL
 prefix: $HOME/anaconda3/envs/rlproject
