@@ -9,7 +9,6 @@ dependencies:
   - notebook
   - pip:
     # For pip packages
-    - FinRL
     - ElegantRL
-    - ray
+    - git+https://github.com/AI4Finance-Foundation/FinRL.git
 prefix: $HOME/anaconda3/envs/finrl_env
