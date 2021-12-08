@@ -26,6 +26,10 @@ INVESTABLE_ASSETS = dict(# Bonds
                           # Commodities
                           commodities = ["GLD"])
 
+# TRANSACTION FEE
+TRANSACTION_FEE_PERCENT = 0.001
+# Gamma or reward scaling 
+REWARD_SCALING = 1e-4
 
 class StockEnvTrain(gym.Env):
     metadata = {'render.modes': ['human']}
@@ -135,6 +139,7 @@ class StockEnvTrain(gym.Env):
 
         if self.terminal:   
             # This is terminal date
+            print("Comes to Terminal")
             pass
         else:
             # This is not terminal date
@@ -162,13 +167,6 @@ class StockEnvTrain(gym.Env):
                                         (asset_class_weights[1] *equity_distr).tolist() + \
                                         (asset_class_weights[2] *commod_distr).tolist()
             investable_returns = self.data.returns_close.values[0:len(self.investable_tic)] # note that it is already ordered in tic seq
-            total_returns = sum(investable_prev_weights * investable_returns)
-            
-            # begin asset
-            begin_total_asset = self.state[0]
-            end_total_asset = self.state[0] * ( 1.0 + total_returns)
-            self.reward = end_total_asset - begin_total_asset
-            self.rewards_memory.append(self.reward)
 
 
             # Action weight:
@@ -186,47 +184,35 @@ class StockEnvTrain(gym.Env):
             act_eq_distr = act_eq_distr/sum(act_eq_distr)
             act_commod_dist = act_commod_dist/sum(act_commod_dist)
 
+            investable_new_weights = np.array((act_asset_class_weights[0] *act_bond_distr).tolist() + \
+                                        (act_asset_class_weights[1] *act_eq_distr).tolist() + \
+                                        (act_asset_class_weights[2] *act_commod_dist).tolist())
+
+
+            # Total return
+            total_returns = sum(investable_prev_weights * investable_returns)
+            begin_total_asset = self.state[0]
+            end_total_asset = begin_total_asset * ( 1.0 + total_returns)
+            
+            pre_rebal_pos = np.array(investable_prev_weights) * begin_total_asset * (1.0 + investable_returns)
+            new_desired_rebal_pos = investable_new_weights * end_total_asset
+            transaction_fee = sum(np.abs(pre_rebal_pos - new_desired_rebal_pos)*TRANSACTION_FEE_PERCENT)
+
+            self.reward = (end_total_asset - begin_total_asset - transaction_fee)
+            self.rewards_memory.append(self.reward)
+            self.reward = self.reward * REWARD_SCALING
+
+
             # We also need to update new state
-            self.state =  [self.state[0]] + \
-                    self.data.adjcp.values.tolist() + \
-                    list(self.state[(STOCK_DIM+1):(STOCK_DIM*2+1)]) + \
-                    self.data.macd.values.tolist() + \
-                    self.data.rsi.values.tolist() + \
-                    self.data.cci.values.tolist() + \
-                    self.data.adx.values.tolist()
-
-
-
-
-            
-
-
-            self.state[(1+n_assets+self.num_asset_classes):(1+n_assets+self.num_asset_classes + len(self.bonds))]
-            asset_positions    = self.state[n_assets:(n_assets+n_assets)]
-            begin_total_asset  = np.sum(np.array(asset_positions) * asset_close_prices)
-
-            argsort_actions = np.argsort(actions)
-            sell_index = argsort_actions[:np.where(actions < 0)[0].shape[0]]
-            buy_index = argsort_actions[::-1][:np.where(actions > 0)[0].shape[0]]
-
-            for index in sell_index:
-                # print('take sell action'.format(actions[index]))
-                self._sell_assets(index, actions[index])
-            
-            for index in buy_index:
-                # print('take sell action'.format(actions[index]))
-                self._buy_assets(index, actions[index])
-            
-            # New day happens
-            self.day += 1
-            self.data = self.df.loc[self.df.Date == self.train_dates[self.day]]
-
-            # get the next state
-
-
-
-            
-
+            self.state =  [end_total_asset]+\
+                          act_asset_class_weights.tolist() +\
+                      act_bond_distr.tolist() + act_eq_distr.tolist() + act_commod_dist.tolist() + \
+                      self.data.close.values.tolist() +\
+                      self.data.macd.values.tolist() + \
+                      self.data.rsi.values.tolist() + \
+                      self.data.cci.values.tolist() + \
+                      self.data.adx.values.tolist() + \
+                      [self.data.turbulence.values[0]]
 
 
         return self.state, self.reward, self.terminal,{}
