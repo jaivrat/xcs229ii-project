@@ -140,12 +140,67 @@ class StockEnvTrain(gym.Env):
             # This is not terminal date
             # beginning of period assets 
             n_assets = len(self.investable_tic)
-            asset_close_prices = self.state[1:(1+n_assets)]
-            asset_class_weights = self.state[(1+n_assets):(1+n_assets+self.num_asset_classes)]
-            asset_class_weights = asset_class_weights/sum(asset_class_weights)
+            asset_class_weights = self.state[self.state_offset_dict['asset_class_weights'][0]:self.state_offset_dict['asset_class_weights'][1]]
+            asset_class_dist_weights = self.state[self.state_offset_dict['asset_distr_weights'][0]:self.state_offset_dict['asset_distr_weights'][1]]
+            asset_close_prices  = self.state[self.state_offset_dict['close'][0]:self.state_offset_dict['close'][1]]
 
-            asset_class_dist_weights = self.state[(1+n_assets):(1+n_assets+self.num_asset_classes)]
-            # bond weights
+
+            # -- bond weights
+            bond_distr = np.array(asset_class_dist_weights[0:len(self.bonds)])
+            bond_distr = bond_distr/sum(bond_distr)
+            # -- equity weights
+            equity_distr = np.array(asset_class_dist_weights[len(self.bonds):len(self.bonds)+len(self.equities)])
+            equity_distr = equity_distr/sum(equity_distr)
+            # -- commodity weights
+            commod_distr = np.array(asset_class_dist_weights[(len(self.bonds)+len(self.equities)):(len(self.bonds)+len(self.equities)+len(self.commodities))])
+            commod_distr = commod_distr/sum(commod_distr)
+
+            self.day += 1
+            self.data = self.df.loc[self.df.Date == self.train_dates[self.day]]
+
+            investable_prev_weights = (asset_class_weights[0] *bond_distr).tolist() + \
+                                        (asset_class_weights[1] *equity_distr).tolist() + \
+                                        (asset_class_weights[2] *commod_distr).tolist()
+            investable_returns = self.data.returns_close.values[0:len(self.investable_tic)] # note that it is already ordered in tic seq
+            total_returns = sum(investable_prev_weights * investable_returns)
+            
+            # begin asset
+            begin_total_asset = self.state[0]
+            end_total_asset = self.state[0] * ( 1.0 + total_returns)
+            self.reward = end_total_asset - begin_total_asset
+            self.rewards_memory.append(self.reward)
+
+
+            # Action weight:
+            act_asset_class_weights = actions[0:self.num_asset_classes]
+            act_asset_class_weights = act_asset_class_weights/sum(act_asset_class_weights)
+            # bonds
+            act_bond_distr = actions[self.num_asset_classes:(self.num_asset_classes +len(self.bonds))]
+            # equities
+            act_eq_distr = actions[ self.num_asset_classes + len(self.bonds):self.num_asset_classes + len(self.bonds)+ len(self.equities)]
+            # commodities
+            act_commod_dist = actions[self.num_asset_classes + len(self.bonds)+ len(self.equities): 
+                                      self.num_asset_classes + len(self.bonds)+ len(self.equities) + len(self.commodities)]
+            # Normalize
+            act_bond_distr = act_bond_distr/sum(act_bond_distr)
+            act_eq_distr = act_eq_distr/sum(act_eq_distr)
+            act_commod_dist = act_commod_dist/sum(act_commod_dist)
+
+            # We also need to update new state
+            self.state =  [self.state[0]] + \
+                    self.data.adjcp.values.tolist() + \
+                    list(self.state[(STOCK_DIM+1):(STOCK_DIM*2+1)]) + \
+                    self.data.macd.values.tolist() + \
+                    self.data.rsi.values.tolist() + \
+                    self.data.cci.values.tolist() + \
+                    self.data.adx.values.tolist()
+
+
+
+
+            
+
+
             self.state[(1+n_assets+self.num_asset_classes):(1+n_assets+self.num_asset_classes + len(self.bonds))]
             asset_positions    = self.state[n_assets:(n_assets+n_assets)]
             begin_total_asset  = np.sum(np.array(asset_positions) * asset_close_prices)
