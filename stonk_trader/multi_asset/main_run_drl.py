@@ -7,7 +7,8 @@ import time
 
 # Working data with technical indicators
 WORKING_DATA_WITH_TE_PATH = "data/wd_te.csv"
-
+# We will retrain our models after 60 business days
+RETRAIN_MODEL_CYCLE = 60
 
 def run_model():
 
@@ -19,7 +20,17 @@ def run_model():
     print("data.shape:{data.shape}")
     print(data.head())
 
-    # 2. We get subset of data for which there are complete set of records
+    # 2. We already have data with complete set of records
+    #    We will retrain our models after 60 business days
+    model_retrain_dates = [ x[1] for x in enumerate(data.Date) if (x[0]+1)%RETRAIN_MODEL_CYCLE==0 ]
+
+    # VERSION 1. Lets live with one model only. Later we do ENSAMBLE
+    for model_retrain_date in model_retrain_dates:
+        print(f"Retraining model on {model_retrain_date}")
+
+        # A. 
+    
+
 
     pass
 
