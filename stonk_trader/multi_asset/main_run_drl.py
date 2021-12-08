@@ -142,6 +142,8 @@ class StockEnvTrain(gym.Env):
             print("Comes to Terminal")
             pass
         else:
+            if np.isnan(actions).any():
+                print("DEBUG: check why action is nan")
             # This is not terminal date
             # beginning of period assets 
             n_assets = len(self.investable_tic)
@@ -254,7 +256,7 @@ def run_model():
 
     # 2. We already have data with complete set of records
     #    We will retrain our models after 60 business days
-    model_retrain_dates = [ x[1] for x in enumerate(data.Date) if (x[0]+1)%RETRAIN_MODEL_CYCLE==0 ]
+    model_retrain_dates = [ x[1] for x in enumerate(data.Date.unique()) if (x[0]+1)%RETRAIN_MODEL_CYCLE==0 ]
 
     # VERSION 1. Lets live with one model only. Later we do ENSAMBLE
     for model_retrain_date in model_retrain_dates:
