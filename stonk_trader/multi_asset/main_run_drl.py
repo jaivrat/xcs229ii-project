@@ -31,7 +31,6 @@ class StockEnvTrain(gym.Env):
     metadata = {'render.modes': ['human']}
     def __init__(self, df, params):
         self._seed()
-        self.df = df
         self.params = params
 
         # TBD: Check if this env is created for each day of training.
@@ -40,41 +39,127 @@ class StockEnvTrain(gym.Env):
         self.day = 0
 
         # These are must for any environment: terminal, state, reward, action_space,observation_space
-        self.terminal = False
-        
-        # initialize state
-        self.train_dates = self.df.Date.unique()
-        data = self.df.loc[self.df.Date == self.train_dates[0]]
+        self.terminal = False        
 
         # make these members to avoid recalculations later in step
+        self.num_asset_classes = len(self.params["investable_assets"].keys())
         self.bonds = self.params["investable_assets"]["bonds"]
         self.equities = self.params["investable_assets"]["equities"]
         self.commodities = self.params["investable_assets"]["commodities"]
         self.all_tic = self.bonds + self.equities + self.commodities
-        ordered_tmp = pd.DataFrame({"tic":self.all_tic}).merge(data[["tic","macd","rsi", "cci","adx","turbulence"]], 
+
+        # We keep ordered once for all
+        self.df = df.copy()
+        self.train_dates = self.df.Date.unique()
+
+        # restrict tic list to those of interest. 
+        # set_tic = set(self.all_tic)
+        # self.df = self.df.loc[tic in set_tic for tic in set_tic]
+        seq_df = pd.DataFrame([(x[1],x[0]) for x in enumerate(self.all_tic)]).rename(columns = {0:"tic", 1:"seq"})
+        self.df = self.df.merge(seq_df, 
+                      how="left", 
+                      left_on = ["tic"], 
+                      right_on = ["tic"])\
+                     .sort_values(by=["Date","seq"])
+
+        self.data = self.df.loc[self.df.Date == self.train_dates[0]]
+        ordered_tmp = pd.DataFrame({"tic":self.all_tic}).merge(self.data[["tic","close","macd","rsi", "cci","adx","turbulence"]], 
                                             how="left", 
                                             left_on = ["tic"], 
                                             right_on = ["tic"])
         # second line weights/$: TBD
-        self.state = [self.params['initial_account_balance']] + \
-                      [0]*len(self.all_tic)  + \
+        bond_weight = 0.40
+        equity_weight = 0.60
+        commodity_weight = 0.00
+        # further distribution of state
+        bonds_distr_wt = [1.0/len(self.bonds) for _ in self.bonds]
+        equity_distr_wt = [1.0/len(self.equities) for _ in self.equities]
+        commodity_distr_wt = [1.0/len(self.commodities) for _ in self.commodities]
+
+        # state:
+        # portfolio $ value => 1
+        # close price values => len(self.all_tic)
+        # [bond_weight, equity_weight,  commodity_weight] => 3
+        # bonds_distr_wt + equity_distr_wt + commodity_distr_wt => #bonds + #equities + #commodities
+        # ordered_tmp.macd.values.tolist()=> len(self.all_tic)
+        # ordered_tmp.rsi.values.tolist() => len(self.all_tic)
+        # ordered_tmp.cci.values.tolist() => len(self.all_tic)
+        # ordered_tmp.adx.values.tolist() => len(self.all_tic)
+        # ordered_tmp.turbulence.values.tolist()=> len(self.all_tic)
+        self.state =  [self.params['initial_account_balance']]+\
+                      ordered_tmp.close.values.tolist() +\
+                      [bond_weight, equity_weight, commodity_weight] +\
+                      bonds_distr_wt + equity_distr_wt + commodity_distr_wt + \
                       ordered_tmp.macd.values.tolist() + \
                       ordered_tmp.rsi.values.tolist() + \
                       ordered_tmp.cci.values.tolist() + \
                       ordered_tmp.adx.values.tolist() + \
                       ordered_tmp.turbulence.values.tolist()
+
+        # Store once to quickly access later in step
+        self.state_offset_dict = dict( dollar_position = 0,
+                                       close = (1, 1+len(self.all_tic)),
+                                       asset_class_weights = (1+len(self.all_tic), 1+len(self.all_tic) + self.num_asset_classes),
+                                       asset_distr_weights = (1+len(self.all_tic) + self.num_asset_classes, 
+                                                              1+len(self.all_tic) + self.num_asset_classes + len(self.all_tic))                      
+                                     )    
                       
         # initialize reward
         self.reward = 0
         self.cost = 0
         # action_space: original paper takes -1 to 1 which means sell 100% or buy 100%
-        self.action_space = spaces.Box(low = -1, high = 1,shape = (len(self.all_tic),)) 
+        # here we take 3 level of actions. 
+        # First: set 3 elements are proportional weights of bond, equity and commodity
+        # Second: next bonds_distr_wt + equity_distr_wt + commodity_distr_wt
+        self.action_space = spaces.Box(low = 0.00000001, high = 1, shape = (self.num_asset_classes + len(self.all_tic),)) 
         # observation_space: same as self.state - should correspond one to one  
         self.observation_space = spaces.Box(low=0, high=np.inf, shape = (len(self.state),))
         # memorize all the total balance change
         self.asset_memory = [self.params['initial_account_balance']]
         self.rewards_memory = []
         pass
+
+    def reset(self):
+        # Can we move this repeated code to a common reset. Same is used in the init
+        self.day = 0        
+        # initialize state
+        data = self.df.loc[self.df.Date == self.train_dates[self.day]]
+        # make these members to avoid recalculations later in step
+        self.bonds = self.params["investable_assets"]["bonds"]
+        self.equities = self.params["investable_assets"]["equities"]
+        self.commodities = self.params["investable_assets"]["commodities"]
+        self.all_tic = self.bonds + self.equities + self.commodities
+        ordered_tmp = pd.DataFrame({"tic":self.all_tic}).merge(data[["tic","close","macd","rsi", "cci","adx","turbulence"]], 
+                                            how="left", 
+                                            left_on = ["tic"], 
+                                            right_on = ["tic"])
+        # second line weights/$: TBD
+        bond_weight = 0.40
+        equity_weight = 0.60
+        commodity_weight = 0.00
+        # further distribution of state
+        bonds_distr_wt = [1.0/len(self.bonds) for _ in self.bonds]
+        equity_distr_wt = [1.0/len(self.equities) for _ in self.equities]
+        commodity_distr_wt = [1.0/len(self.commodities) for _ in self.commodities]
+
+        self.state =  [self.params['initial_account_balance']]+\
+                      ordered_tmp.close.values.tolist() +\
+                      [bond_weight, equity_weight, commodity_weight] +\
+                      bonds_distr_wt + equity_distr_wt + commodity_distr_wt + \
+                      ordered_tmp.macd.values.tolist() + \
+                      ordered_tmp.rsi.values.tolist() + \
+                      ordered_tmp.cci.values.tolist() + \
+                      ordered_tmp.adx.values.tolist() + \
+                      ordered_tmp.turbulence.values.tolist()   
+                      
+        # initialize reward
+        self.reward = 0
+        self.cost = 0
+        # memorize all the total balance change
+        self.asset_memory = [self.params['initial_account_balance']]
+        self.rewards_memory = []
+        return self.state
+
 
     def _sell_assets(self, action):
         #TODO
@@ -87,41 +172,54 @@ class StockEnvTrain(gym.Env):
         pass
 
     def step(self, actions):
-        #TODO
-        1+2
+        
+        # Terminal state is market if it is last day of training set
+        self.terminal = (self.day == len(self.train_dates)-1)
+
+        if self.terminal:   
+            # This is terminal date
+            pass
+        else:
+            # This is not terminal date
+            # beginning of period assets 
+            n_assets = len(self.all_tic)
+            asset_close_prices = self.state[1:(1+n_assets)]
+            asset_class_weights = self.state[(1+n_assets):(1+n_assets+self.num_asset_classes)]
+            asset_class_weights = asset_class_weights/sum(asset_class_weights)
+
+            asset_class_dist_weights = self.state[(1+n_assets):(1+n_assets+self.num_asset_classes)]
+            # bond weights
+            self.state[(1+n_assets+self.num_asset_classes):(1+n_assets+self.num_asset_classes + len(self.bonds))]
+            asset_positions    = self.state[n_assets:(n_assets+n_assets)]
+            begin_total_asset  = np.sum(np.array(asset_positions) * asset_close_prices)
+
+            argsort_actions = np.argsort(actions)
+            sell_index = argsort_actions[:np.where(actions < 0)[0].shape[0]]
+            buy_index = argsort_actions[::-1][:np.where(actions > 0)[0].shape[0]]
+
+            for index in sell_index:
+                # print('take sell action'.format(actions[index]))
+                self._sell_assets(index, actions[index])
+            
+            for index in buy_index:
+                # print('take sell action'.format(actions[index]))
+                self._buy_assets(index, actions[index])
+            
+            # New day happens
+            self.day += 1
+            self.data = self.df.loc[self.df.Date == self.train_dates[self.day]]
+
+            # get the next state
+
+
+
+            
+
+
 
         return self.state, self.reward, self.terminal,{}
 
-    def reset(self):
-        # Can we move this repeated code to a common reset. Same is used in the init
-        self.day = 0        
-        # initialize state
-        data = self.df.loc[self.df.Date == self.train_dates[self.day]]
-        # make these members to avoid recalculations later in step
-        self.bonds = self.params["investable_assets"]["bonds"]
-        self.equities = self.params["investable_assets"]["equities"]
-        self.commodities = self.params["investable_assets"]["commodities"]
-        self.all_tic = self.bonds + self.equities + self.commodities
-        ordered_tmp = pd.DataFrame({"tic":self.all_tic}).merge(data[["tic","macd","rsi", "cci","adx","turbulence"]], 
-                                            how="left", 
-                                            left_on = ["tic"], 
-                                            right_on = ["tic"])
-        # second line weights/$: TBD
-        self.state = [self.params['initial_account_balance']] + \
-                      [0]*len(self.all_tic)  + \
-                      ordered_tmp.macd.values.tolist() + \
-                      ordered_tmp.rsi.values.tolist() + \
-                      ordered_tmp.cci.values.tolist() + \
-                      ordered_tmp.adx.values.tolist() + \
-                      ordered_tmp.turbulence.values.tolist()
-                      
-        # initialize reward
-        self.reward = 0
-        self.cost = 0
-        # memorize all the total balance change
-        self.asset_memory = [self.params['initial_account_balance']]
-        self.rewards_memory = []
-        return self.state
+    
     
     def render(self, mode='human'):
         return self.state
