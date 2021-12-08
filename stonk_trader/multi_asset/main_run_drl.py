@@ -144,6 +144,8 @@ class StockEnvTrain(gym.Env):
         else:
             if np.isnan(actions).any():
                 print("DEBUG: check why action is nan")
+            if self.day == 51:
+                print("DEBUG: check why action becomes nan later")
             # This is not terminal date
             # beginning of period assets 
             n_assets = len(self.investable_tic)
