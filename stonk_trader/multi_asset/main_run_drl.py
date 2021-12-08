@@ -19,6 +19,8 @@ def run_model():
     print("data.shape:{data.shape}")
     print(data.head())
 
+    # 2. We get subset of data for which there are complete set of records
+
     pass
 
 
