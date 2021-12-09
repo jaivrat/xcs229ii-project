@@ -4,6 +4,8 @@ import numpy as np
 import os
 import time
 from datetime import datetime
+from datetime import timedelta  
+
 
 from stable_baselines.common.vec_env import DummyVecEnv
 import gym
@@ -24,6 +26,8 @@ SAVE_DEBUG_FILES = False
 WORKING_DATA_WITH_TE_PATH = "data/wd_te.csv"
 # We will retrain our models after 60 business days
 RETRAIN_MODEL_CYCLE = 60
+# Validation window
+VALIDATION_WINDOW = 60
 # Investable assets 
 INVESTABLE_ASSETS = dict(# Bonds
                           bonds = ["LQD", "SHY", "IEF", "TLT", "AGG"], 
@@ -37,7 +41,9 @@ TRANSACTION_FEE_PERCENT = 0.001
 # Gamma or reward scaling 
 REWARD_SCALING = 1e-4
 
-class StockEnvTrain(gym.Env):
+
+#------------------------------------------------------------------------------------------------
+class StockEnv(gym.Env):
     metadata = {'render.modes': ['human']}
     def __init__(self, df, params):
         # TBD: Check if this env is created for each day of training.
@@ -45,6 +51,13 @@ class StockEnvTrain(gym.Env):
         # For intermediate calls only the step is called
         self._seed()
         self.params = params
+
+        # If training mode, we don't need to return lots of information
+        # else we can return the holdings and other information from the
+        # function
+        self.train_mode = True
+        if "train_mode" in self.params:
+            self.train_mode = self.params["train_mode"]
 
         # make these members to avoid recalculations later in step
         self.num_asset_classes = len(self.params["investable_assets"].keys())
@@ -54,7 +67,7 @@ class StockEnvTrain(gym.Env):
         self.investable_tic = self.bonds + self.equities + self.commodities
 
         self.df = df.copy()
-        self.train_dates = self.df.Date.unique()
+        self.df_unique_dates = self.df.Date.unique()
         self.non_investable_tic = list(set(self.df.tic) - set(self.investable_tic))
         
         # We keep ordered once for all
@@ -77,7 +90,7 @@ class StockEnvTrain(gym.Env):
         # These are must for any environment: terminal, state, reward, action_space,observation_space
         self.terminal = False        
 
-        self.data = self.df.loc[self.df.Date == self.train_dates[0]]
+        self.data = self.df.loc[self.df.Date == self.df_unique_dates[0]]
         # second line weights/$: TBD
         bond_weight = 0.40
         equity_weight = 0.60
@@ -127,6 +140,7 @@ class StockEnvTrain(gym.Env):
         # memorize all the total balance change
         self.asset_memory = [self.params['initial_account_balance']]
         self.rewards_memory = []
+        self.weights_memory = pd.DataFrame(columns=["Date"] + self.investable_tic)
 
     def _sell_assets(self, action):
         #TODO
@@ -141,7 +155,7 @@ class StockEnvTrain(gym.Env):
     def step(self, actions):
         
         # Terminal state is market if it is second last day of training set
-        self.terminal = (self.day == len(self.train_dates)-2)
+        self.terminal = (self.day == len(self.df_unique_dates)-2)
 
         if np.isnan(actions).any():
                 print("DEBUG: check why action is nan")
@@ -163,7 +177,7 @@ class StockEnvTrain(gym.Env):
         commod_distr = commod_distr/sum(commod_distr)
 
         self.day += 1
-        self.data = self.df.loc[self.df.Date == self.train_dates[self.day]]
+        self.data = self.df.loc[self.df.Date == self.df_unique_dates[self.day]]
 
         investable_prev_weights = (asset_class_weights[0] *bond_distr).tolist() + \
                                     (asset_class_weights[1] *equity_distr).tolist() + \
@@ -174,24 +188,31 @@ class StockEnvTrain(gym.Env):
         total_returns = sum(investable_prev_weights * investable_returns)
         begin_total_asset = self.state[0]
         end_total_asset = begin_total_asset * ( 1.0 + total_returns)
+        pre_rebal_pos = np.array(investable_prev_weights) * begin_total_asset * (1.0 + investable_returns)
 
 
         if self.terminal:   
             # This is terminal date
             self.asset_memory.append(end_total_asset)
             # print("Comes to Terminal")
-            if self.params["save_debug_files"]:
-                # save files
-                df_total_value = pd.DataFrame({"Date": self.train_dates, "account_value":self.asset_memory})
-                df_total_value['daily_return']=df_total_value["account_value"].pct_change(1)
-                df_total_value.to_csv('results/account_value_train.csv')
-                # save plot
-                plt.plot(df_total_value[["Date", "account_value"]].set_index("Date"), "r")
-                plt.savefig('results/account_value_train.png')
-                plt.close()
-                sharpe = (252**0.5)*df_total_value['daily_return'].mean()/ \
-                                    df_total_value['daily_return'].std()
-            return self.state, self.reward, self.terminal,{}
+            #if self.params["save_debug_files"]:
+            #    # save files
+            #    value_returns_df = pd.DataFrame({"Date": self.df_unique_dates, "account_value":self.asset_memory})
+            #    value_returns_df['daily_return']=value_returns_df["account_value"].pct_change(1)
+            #    value_returns_df.to_csv('results/account_value_train.csv')
+            #    # save plot
+            #    plt.plot(df_total_value[["Date", "account_value"]].set_index("Date"), "r")
+            #    plt.savefig('results/account_value_train.png')
+            #    plt.close()
+            #    sharpe = (252**0.5)*df_total_value['daily_return'].mean()/ \
+            #                        df_total_value['daily_return'].std()
+            
+            info = {}
+            if not self.train_mode:
+                value_returns_df = pd.DataFrame({"Date": self.df_unique_dates, "account_value":self.asset_memory})
+                value_returns_df['daily_return']=value_returns_df["account_value"].pct_change(1)
+                info["value_returns_df"] = value_returns_df
+            return self.state, self.reward, self.terminal, info
 
         else:
             # This is not terminal date
@@ -214,7 +235,7 @@ class StockEnvTrain(gym.Env):
                                         (act_asset_class_weights[1] *act_eq_distr).tolist() + \
                                         (act_asset_class_weights[2] *act_commod_dist).tolist())
 
-            pre_rebal_pos = np.array(investable_prev_weights) * begin_total_asset * (1.0 + investable_returns)
+            
             new_desired_rebal_pos = investable_new_weights * end_total_asset
             transaction_fee = sum(np.abs(pre_rebal_pos - new_desired_rebal_pos)*TRANSACTION_FEE_PERCENT)
 
@@ -234,11 +255,23 @@ class StockEnvTrain(gym.Env):
                       self.data.adx.values.tolist() + \
                       [self.data.turbulence.values[0]]
 
+        info = {}
+        if not self.train_mode:
+            # Add weights for each asset: new_weight (post rebal weight), pre_weights = (pre rebal weight)
+            info["weights"] = self._pre_post_rebal_weights(self.data.Date.values[0], self.investable_tic, investable_new_weights, pre_rebal_pos)
+            # This is returned only in terminal state
+            info["value_returns_df"] = None
 
-        return self.state, self.reward, self.terminal,{}
+        return self.state, self.reward, self.terminal,info
 
     
-    
+    def _pre_post_rebal_weights(self, dt, tics,  investable_new_weights, pre_rebal_pos):
+        tmp_weights = pd.DataFrame([(dt, x[0],x[1]) for x in zip(tics, investable_new_weights)])\
+                                    .rename(columns = {0:"Date", 1: "tic", 2:"new_weight"})
+        tmp_weights["pre_weights"] = pre_rebal_pos/sum(pre_rebal_pos)
+        return tmp_weights
+
+
     def render(self, mode='human'):
         return self.state
 
@@ -260,6 +293,23 @@ def train_A2C(env_train, model_name, timesteps=25000):
     print('Training time (A2C): ', (end - start) / 60, ' minutes')
     return model
 
+#------------------------------------------------------------------------------------------------
+def DRL_validation(model, test_data, test_env, test_obs) -> None:
+    ###validation process###
+    #for i in range(len(test_data.index.unique())):
+    #    action, _states = model.predict(test_obs)
+    #    test_obs, rewards, dones, info = test_env.step(action)
+
+    # We run ne date less to test till last. The second last date is the termination date
+    dates = test_data.Date.unique()
+    rewards, done, info = None, None, None
+    for dt in dates[0:(len(dates)-1)]:
+        action, _states = model.predict(test_obs)
+        test_obs, rewards, done, info = test_env.step(action)
+    1 + 2
+    pass
+
+
 
 #------------------------------------------------------------------------------------------------
 def run_model():
@@ -280,21 +330,42 @@ def run_model():
     for model_retrain_date in model_retrain_dates:
         print(f"Retraining model on {model_retrain_date}")
 
+        # Out of this historical data we reserve last 60 days for validation
+        # and any date before that training
+        train_till_date = model_retrain_date + timedelta(days=-VALIDATION_WINDOW)
+
+        # Validation Range
+        validation_from, validation_to = (train_till_date + timedelta(days=1), model_retrain_date)
+
         # 1. select training data. The data is from full history till the model_retrain_date
-        train_data = data.loc[data.Date <= model_retrain_date]
-        print(train_data.shape)
+        train_data = data.loc[data.Date <= train_till_date]
+        print(f"train_data.shape={train_data.shape}")
 
         # 2. Create the training env
         params = {"investable_assets" : INVESTABLE_ASSETS, 'initial_account_balance': 1e6, "save_debug_files":SAVE_DEBUG_FILES}
-        env_train = DummyVecEnv([lambda: StockEnvTrain(train_data, params)])
+        env_train = DummyVecEnv([lambda: StockEnv(train_data, params)])
 
         # 3. We train the model
         train_from_date_str = datetime.strftime(train_data.Date.values[1],"%Y%m%d")        
         train_till_date_str = datetime.strftime(train_data.Date.values[-1],"%Y%m%d")
         model_name = "A2C_multiasset_{}_{}".format(train_from_date_str,train_till_date_str)
         model_a2c = train_A2C(env_train, model_name, timesteps=25000)
-        1 + 2
 
+        # 4. We validate the model
+        # Setup
+        validation_data = data.loc[(data.Date >= validation_from) & (data.Date <= validation_to)]
+        print(f"validation_data.shape={validation_data.shape}")
+        params["train_mode"] = False
+        env_val = DummyVecEnv([lambda: StockEnv(validation_data, params)])
+        obs_val = env_val.reset()
+        DRL_validation(model=model_a2c, test_data=validation_data, test_env=env_val, test_obs=obs_val)
+        
+        sharpe_a2c = get_validation_sharpe(i)
+
+
+
+
+        1 + 2
     pass
 
 
