@@ -212,6 +212,8 @@ class StockEnv(gym.Env):
                 value_returns_df = pd.DataFrame({"Date": self.df_unique_dates, "account_value":self.asset_memory})
                 value_returns_df['daily_return']=value_returns_df["account_value"].pct_change(1)
                 info["value_returns_df"] = value_returns_df
+                # Last terminal we do not need weight
+                info["weights"] = None
             return self.state, self.reward, self.terminal, info
 
         else:
@@ -303,13 +305,25 @@ def DRL_validation(model, test_data, test_env, test_obs) -> None:
     # We run ne date less to test till last. The second last date is the termination date
     dates = test_data.Date.unique()
     rewards, done, info = None, None, None
+    weights_list = []
+    value_returns_df = None
     for dt in dates[0:(len(dates)-1)]:
         action, _states = model.predict(test_obs)
         test_obs, rewards, done, info = test_env.step(action)
-    1 + 2
-    pass
+        if info[0]['weights'] is not None:
+            weights_list.append(info[0]['weights'])
+        if done[0]:
+            value_returns_df = info[0]['value_returns_df']
 
+    weights_df = pd.concat(weights_list)
+    return value_returns_df, weights_df
 
+#------------------------------------------------------------------------------------------------
+def get_sharpe(value_returns_df):
+    ###Calculate Sharpe ratio based on validation results###
+    sharpe = (np.sqrt(252.0)) * value_returns_df['daily_return'].mean() / \
+             value_returns_df['daily_return'].std()
+    return sharpe
 
 #------------------------------------------------------------------------------------------------
 def run_model():
@@ -358,14 +372,11 @@ def run_model():
         params["train_mode"] = False
         env_val = DummyVecEnv([lambda: StockEnv(validation_data, params)])
         obs_val = env_val.reset()
-        DRL_validation(model=model_a2c, test_data=validation_data, test_env=env_val, test_obs=obs_val)
-        
-        sharpe_a2c = get_validation_sharpe(i)
+        value_returns_df, weights_df = DRL_validation(model=model_a2c, test_data=validation_data, test_env=env_val, test_obs=obs_val)
+        sharpe_a2c = get_sharpe(value_returns_df)
+        print(weights_df[weights_df.tic=="GLD"])
+        print("sharpe_a2c:{sharpe_a2c}")
 
-
-
-
-        1 + 2
     pass
 
 
