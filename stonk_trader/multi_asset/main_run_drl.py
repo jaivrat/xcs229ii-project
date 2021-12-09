@@ -140,6 +140,8 @@ class StockEnvTrain(gym.Env):
         if self.terminal:   
             # This is terminal date
             print("Comes to Terminal")
+
+            
             pass
         else:
             if np.isnan(actions).any():
