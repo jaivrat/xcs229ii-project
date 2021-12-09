@@ -13,6 +13,10 @@ from gym import spaces
 # RL models from stable-baselines
 from stable_baselines import A2C
 
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
 
 # Working data with technical indicators
 WORKING_DATA_WITH_TE_PATH = "data/wd_te.csv"
@@ -134,47 +138,60 @@ class StockEnvTrain(gym.Env):
 
     def step(self, actions):
         
-        # Terminal state is market if it is last day of training set
-        self.terminal = (self.day == len(self.train_dates)-1)
+        # Terminal state is market if it is second last day of training set
+        self.terminal = (self.day == len(self.train_dates)-2)
+
+        if np.isnan(actions).any():
+                print("DEBUG: check why action is nan")
+        #if self.day == 51:
+        #    print("DEBUG: check why action becomes nan later")
+        
+        # beginning of period assets 
+        asset_class_weights = self.state[self.state_offset_dict['asset_class_weights'][0]:self.state_offset_dict['asset_class_weights'][1]]
+        asset_class_dist_weights = self.state[self.state_offset_dict['asset_distr_weights'][0]:self.state_offset_dict['asset_distr_weights'][1]]
+
+        # -- bond weights
+        bond_distr = np.array(asset_class_dist_weights[0:len(self.bonds)])
+        bond_distr = bond_distr/sum(bond_distr)
+        # -- equity weights
+        equity_distr = np.array(asset_class_dist_weights[len(self.bonds):len(self.bonds)+len(self.equities)])
+        equity_distr = equity_distr/sum(equity_distr)
+        # -- commodity weights
+        commod_distr = np.array(asset_class_dist_weights[(len(self.bonds)+len(self.equities)):(len(self.bonds)+len(self.equities)+len(self.commodities))])
+        commod_distr = commod_distr/sum(commod_distr)
+
+        self.day += 1
+        self.data = self.df.loc[self.df.Date == self.train_dates[self.day]]
+
+        investable_prev_weights = (asset_class_weights[0] *bond_distr).tolist() + \
+                                    (asset_class_weights[1] *equity_distr).tolist() + \
+                                    (asset_class_weights[2] *commod_distr).tolist()
+        investable_returns = self.data.returns_close.values[0:len(self.investable_tic)] # note that it is already ordered in tic seq
+        
+        # Total return
+        total_returns = sum(investable_prev_weights * investable_returns)
+        begin_total_asset = self.state[0]
+        end_total_asset = begin_total_asset * ( 1.0 + total_returns)
+
 
         if self.terminal:   
             # This is terminal date
+            self.asset_memory.append(end_total_asset)
             print("Comes to Terminal")
+            # save files
+            df_total_value = pd.DataFrame({"Date": self.train_dates, "account_value":self.asset_memory})
+            df_total_value['daily_return']=df_total_value["account_value"].pct_change(1)
+            df_total_value.to_csv('results/account_value_train.csv')
+            # save plot
+            plt.plot(df_total_value[["Date", "account_value"]].set_index("Date"), "r")
+            plt.savefig('results/account_value_train.png')
+            plt.close()
+            sharpe = (252**0.5)*df_total_value['daily_return'].mean()/ \
+                                df_total_value['daily_return'].std()
+            return self.state, self.reward, self.terminal,{}
 
-            
-            pass
         else:
-            if np.isnan(actions).any():
-                print("DEBUG: check why action is nan")
-            if self.day == 51:
-                print("DEBUG: check why action becomes nan later")
             # This is not terminal date
-            # beginning of period assets 
-            n_assets = len(self.investable_tic)
-            asset_class_weights = self.state[self.state_offset_dict['asset_class_weights'][0]:self.state_offset_dict['asset_class_weights'][1]]
-            asset_class_dist_weights = self.state[self.state_offset_dict['asset_distr_weights'][0]:self.state_offset_dict['asset_distr_weights'][1]]
-            asset_close_prices  = self.state[self.state_offset_dict['close'][0]:self.state_offset_dict['close'][1]]
-
-
-            # -- bond weights
-            bond_distr = np.array(asset_class_dist_weights[0:len(self.bonds)])
-            bond_distr = bond_distr/sum(bond_distr)
-            # -- equity weights
-            equity_distr = np.array(asset_class_dist_weights[len(self.bonds):len(self.bonds)+len(self.equities)])
-            equity_distr = equity_distr/sum(equity_distr)
-            # -- commodity weights
-            commod_distr = np.array(asset_class_dist_weights[(len(self.bonds)+len(self.equities)):(len(self.bonds)+len(self.equities)+len(self.commodities))])
-            commod_distr = commod_distr/sum(commod_distr)
-
-            self.day += 1
-            self.data = self.df.loc[self.df.Date == self.train_dates[self.day]]
-
-            investable_prev_weights = (asset_class_weights[0] *bond_distr).tolist() + \
-                                        (asset_class_weights[1] *equity_distr).tolist() + \
-                                        (asset_class_weights[2] *commod_distr).tolist()
-            investable_returns = self.data.returns_close.values[0:len(self.investable_tic)] # note that it is already ordered in tic seq
-
-
             # Action weight:
             act_asset_class_weights = actions[0:self.num_asset_classes]
             act_asset_class_weights = act_asset_class_weights/sum(act_asset_class_weights)
@@ -194,20 +211,14 @@ class StockEnvTrain(gym.Env):
                                         (act_asset_class_weights[1] *act_eq_distr).tolist() + \
                                         (act_asset_class_weights[2] *act_commod_dist).tolist())
 
-
-            # Total return
-            total_returns = sum(investable_prev_weights * investable_returns)
-            begin_total_asset = self.state[0]
-            end_total_asset = begin_total_asset * ( 1.0 + total_returns)
-            
             pre_rebal_pos = np.array(investable_prev_weights) * begin_total_asset * (1.0 + investable_returns)
             new_desired_rebal_pos = investable_new_weights * end_total_asset
             transaction_fee = sum(np.abs(pre_rebal_pos - new_desired_rebal_pos)*TRANSACTION_FEE_PERCENT)
 
             self.reward = (end_total_asset - begin_total_asset - transaction_fee)
             self.rewards_memory.append(self.reward)
+            self.asset_memory.append(end_total_asset - transaction_fee)
             self.reward = self.reward * REWARD_SCALING
-
 
             # We also need to update new state
             self.state =  [end_total_asset]+\
@@ -279,8 +290,6 @@ def run_model():
         train_till_date_str = datetime.strftime(train_data.Date.values[-1],"%Y%m%d")
         model_name = "A2C_multiasset_{}_{}".format(train_from_date_str,train_till_date_str)
         model_a2c = train_A2C(env_train, model_name, timesteps=25000)
-
-
         1 + 2
 
     pass
