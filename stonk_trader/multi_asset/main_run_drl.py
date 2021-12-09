@@ -18,6 +18,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 
+# TO SAVE DEBUGGING FILE (will increase proocessing time)
+SAVE_DEBUG_FILES = False
 # Working data with technical indicators
 WORKING_DATA_WITH_TE_PATH = "data/wd_te.csv"
 # We will retrain our models after 60 business days
@@ -177,17 +179,18 @@ class StockEnvTrain(gym.Env):
         if self.terminal:   
             # This is terminal date
             self.asset_memory.append(end_total_asset)
-            print("Comes to Terminal")
-            # save files
-            df_total_value = pd.DataFrame({"Date": self.train_dates, "account_value":self.asset_memory})
-            df_total_value['daily_return']=df_total_value["account_value"].pct_change(1)
-            df_total_value.to_csv('results/account_value_train.csv')
-            # save plot
-            plt.plot(df_total_value[["Date", "account_value"]].set_index("Date"), "r")
-            plt.savefig('results/account_value_train.png')
-            plt.close()
-            sharpe = (252**0.5)*df_total_value['daily_return'].mean()/ \
-                                df_total_value['daily_return'].std()
+            # print("Comes to Terminal")
+            if self.params["save_debug_files"]:
+                # save files
+                df_total_value = pd.DataFrame({"Date": self.train_dates, "account_value":self.asset_memory})
+                df_total_value['daily_return']=df_total_value["account_value"].pct_change(1)
+                df_total_value.to_csv('results/account_value_train.csv')
+                # save plot
+                plt.plot(df_total_value[["Date", "account_value"]].set_index("Date"), "r")
+                plt.savefig('results/account_value_train.png')
+                plt.close()
+                sharpe = (252**0.5)*df_total_value['daily_return'].mean()/ \
+                                    df_total_value['daily_return'].std()
             return self.state, self.reward, self.terminal,{}
 
         else:
@@ -282,7 +285,7 @@ def run_model():
         print(train_data.shape)
 
         # 2. Create the training env
-        params = {"investable_assets" : INVESTABLE_ASSETS, 'initial_account_balance': 1e6}
+        params = {"investable_assets" : INVESTABLE_ASSETS, 'initial_account_balance': 1e6, "save_debug_files":SAVE_DEBUG_FILES}
         env_train = DummyVecEnv([lambda: StockEnvTrain(train_data, params)])
 
         # 3. We train the model
