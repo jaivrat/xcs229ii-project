@@ -331,15 +331,14 @@ def run_model():
     weights_df_list=[]
     sharpe_a2c_list=[]
 
+    trading_weights_list = []
+    trading_value_returns_list = []
+
     model_retrain_dates_idx  = 0 # Just to have quick checks
     # VERSION 1. Lets live with one model only. Later we do ENSAMBLE
     for model_retrain_dates_idx in range(len(model_retrain_dates)):
+        
         model_retrain_date = model_retrain_dates[model_retrain_dates_idx]
-
-        debug_iter += 1
-
-        if debug_iter > 2:
-            break
         print(f"Retraining model on {model_retrain_date}")
 
         # Out of this historical data we reserve last 60 days for validation
@@ -356,13 +355,11 @@ def run_model():
         validation_data = data.loc[(data.Date >= validation_from) & (data.Date <= validation_to)]
         print(f"validation_data.shape={validation_data.shape}")
 
-
         # 2. Params for environment
         params = {"investable_assets" : INVESTABLE_ASSETS, 
                  'initial_account_balance': 1e6, 
                  "save_debug_files":SAVE_DEBUG_FILES
                  }
-
 
         # A2C
         # 3. We train/validate the model
@@ -421,7 +418,6 @@ def run_model():
         del env_val
 
 
-        1 + 2
         # TRADE Till next model_retrain_date. ie. backtest
         chosen_model = model_ppo
 
@@ -442,8 +438,6 @@ def run_model():
         # We run ne date less to test till last. The second last date is the termination date
         dates = trading_data.Date.unique()
         rewards, done, info = None, None, None
-        trading_weights_list = []
-        trading_value_returns_list = []
         for dt in dates[0:(len(dates)-1)]:
             action, _states = chosen_model.predict(obs_trade)
             obs_trade, rewards, done, info = env_trade.step(action)
@@ -452,7 +446,7 @@ def run_model():
             if done[0]:
                 trading_value_returns_list.append(info[0]['value_returns_df'])
         trading_weights_df = pd.concat(trading_weights_list)
-        trading_value_returns_df = pd.concat(trading_weights_list)
+        trading_value_returns_df = pd.concat(trading_value_returns_list)
 
 
     value_returns_df = pd.concat(value_returns_list)
