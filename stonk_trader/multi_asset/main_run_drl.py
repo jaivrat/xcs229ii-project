@@ -89,6 +89,33 @@ class StockEnv(gym.Env):
         self._common_init_reset()
         return self.state
 
+    def _state_creator(self, p_data_for_day, p_asset_weights_dict, p_asset_weights=None):
+        """
+        p_data_for_day: dataframe of day data from which state will be constructed
+        
+        Pass EITHER 
+        p_asset_weights_dict: dict with keys self.investable_tic
+        OR
+        p_asset_weights: asset weights in self.investable_tic order. if passed it is used. Else it is constructed from p_asset_weights_dict
+        """
+        
+        asset_weights = None
+        if p_asset_weights is None:
+            assert len(p_asset_weights_dict) == len(self.investable_tic), "p_asset_weights_dict has not got needed assets"
+            # This is in order -> all bonds wt + all equity wts + all commodity wts
+            asset_weights = [p_asset_weights_dict[tic] for tic in self.investable_tic]
+        else:
+            asset_weights = p_asset_weights
+
+        tmp_state = asset_weights +\
+                    p_data_for_day.macd.values.tolist() + \
+                    p_data_for_day.rsi.values.tolist() + \
+                    p_data_for_day.cci.values.tolist() + \
+                    p_data_for_day.adx.values.tolist() + \
+                    [p_data_for_day.turbulence.values[0]]
+        return tmp_state
+
+
     def _common_init_reset(self):
         self.day = 0
         # These are must for any environment: terminal, state, reward, action_space,observation_space
@@ -97,23 +124,20 @@ class StockEnv(gym.Env):
         self.data = self.df.loc[self.df.Date == self.df_unique_dates[0]]
 
         # state:
-        # bonds_distr_wt + equity_distr_wt + commodity_distr_wt => #bonds + #equities + #commodities
-        # macd.values.tolist() => self.data.shape[0]
-        # rsi.values.tolist() => self.data.shape[0]
-        # cci.values.tolist() => self.data.shape[0]
-        # adx.values.tolist() => self.data.shape[0]
-        # turbulence.values.tolist()=> 1  # only one turbulence value
-        bond_weight = 0.35
-        equity_weight = 0.60
-        commodity_weight = 0.05
-        self.state =  [bond_weight * 1.0/len(self.bonds) for _ in self.bonds] +\
-                      [equity_weight * 1.0/len(self.equities) for _ in self.equities] +\
-                      [commodity_weight * 1.0/len(self.commodities) for _ in self.commodities] +\
-                      self.data.macd.values.tolist() + \
-                      self.data.rsi.values.tolist() + \
-                      self.data.cci.values.tolist() + \
-                      self.data.adx.values.tolist() + \
-                      [self.data.turbulence.values[0]]
+        init_asset_weights = None
+        if "custom_init_weight" in self.params:
+            init_asset_weights = self.params["custom_init_weight"]
+        else:
+            # default
+            bond_weight = 0.35
+            equity_weight = 0.60
+            commodity_weight = 0.05
+            init_asset_weights = {tic:wt for tic,wt in  zip(self.bonds + self.equities + self.commodities,
+                                        [bond_weight * 1.0/len(self.bonds) for _ in self.bonds] +\
+                                        [equity_weight * 1.0/len(self.equities) for _ in self.equities] +\
+                                        [commodity_weight * 1.0/len(self.commodities) for _ in self.commodities])}
+
+        self.state =  self._state_creator(p_data_for_day = self.data, p_asset_weights_dict = init_asset_weights)
 
         # Store once to quickly access later in step
         self.state_offset_dict = dict( 
@@ -201,12 +225,7 @@ class StockEnv(gym.Env):
             self.tc_cost_memory.append(transaction_fee/begin_total_asset)
 
             # We also need to update new state
-            self.state =  investable_new_weights.tolist() +\
-                        self.data.macd.values.tolist() + \
-                        self.data.rsi.values.tolist() + \
-                        self.data.cci.values.tolist() + \
-                        self.data.adx.values.tolist() + \
-                        [self.data.turbulence.values[0]]
+            self.state =  self._state_creator(p_data_for_day = self.data, p_asset_weights_dict = None, p_asset_weights = investable_new_weights.tolist())
 
             info = {}
             if not self.train_mode:
