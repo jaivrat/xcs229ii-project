@@ -452,6 +452,19 @@ def run_model():
 
 
         params["train_mode"] = False
+        if model_retrain_dates_idx > 0:
+            # Use customized weights and new $ amount
+            # Use last trading weights
+            last_weights = trading_weights_list[-1]
+            params["custom_init_weight"] = dict(last_weights[["tic","new_weight"]].apply(lambda x: (x[0],x[1]), axis = 1).values)
+            # Last cumulative value
+            params['initial_account_balance'] = trading_value_returns_list[-1].account_value.values[-1]
+        else:
+            # default account balance to start
+            params['initial_account_balance'] = 1000000.0
+            
+
+
         env_trade = DummyVecEnv([lambda: StockEnv(trading_data, params)])
         obs_trade = env_trade.reset()
         # We run ne date less to test till last. The second last date is the termination date
@@ -464,17 +477,15 @@ def run_model():
                 trading_weights_list.append(info[0]['weights'])
             if done[0]:
                 trading_value_returns_list.append(info[0]['value_returns_df'])
-        trading_weights_df = pd.concat(trading_weights_list)
-        trading_value_returns_df = pd.concat(trading_value_returns_list)
 
-
-    value_returns_df = pd.concat(value_returns_list)
-    weights_df  = pd.concat(weights_df_list)
+    # All dates loop ends here
+    trading_weights_df = pd.concat(trading_weights_list)
+    trading_value_returns_df  = pd.concat(trading_value_returns_list)
     print(sharpe_a2c_list)
-    print("Writing value_returns_df.csv")
-    value_returns_df.to_csv('results/value_returns_df.csv', index=False)
-    print("Writing weights_df.csv")
-    weights_df.to_csv('results/weights_df.csv', index=False)
+    print("Writing trading_weights_df.csv")
+    trading_weights_df.to_csv('results/trading_weights_df.csv', index=False)
+    print("Writing trading_value_returns_df.csv")
+    trading_value_returns_df.to_csv('results/trading_value_returns_df.csv', index=False)
     pass
 
 
