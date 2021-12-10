@@ -14,6 +14,10 @@ from gym import spaces
 
 # RL models from stable-baselines
 from stable_baselines import A2C
+from stable_baselines import PPO2
+from stable_baselines import DDPG
+
+from stable_baselines.common.noise import OrnsteinUhlenbeckActionNoise
 
 import matplotlib
 matplotlib.use('Agg')
@@ -128,8 +132,9 @@ class StockEnv(gym.Env):
         self.observation_space = spaces.Box(low=0, high=np.inf, shape = (len(self.state),))
         # memorize all the total balance change
         self.asset_memory = [self.params['initial_account_balance']]
+        self.tc_cost_memory = [np.NaN]
         self.rewards_memory = []
-        self.weights_memory = pd.DataFrame(columns=["Date"] + self.investable_tic)
+        # self.weights_memory = pd.DataFrame(columns=["Date"] + self.investable_tic)
 
 
     def step(self, actions):
@@ -156,8 +161,10 @@ class StockEnv(gym.Env):
 
 
         if self.terminal:   
-            # This is terminal date
+            # TERMINAL DATE: This is terminal date
             self.asset_memory.append(end_total_asset)
+            # There is no transaction cost as such on last day of observation
+            self.tc_cost_memory.append(np.NaN)
             # print("Comes to Terminal")
             #if self.params["save_debug_files"]:
             #    # save files
@@ -175,6 +182,7 @@ class StockEnv(gym.Env):
             if not self.train_mode:
                 value_returns_df = pd.DataFrame({"Date": self.df_unique_dates, "account_value":self.asset_memory})
                 value_returns_df['daily_return']=value_returns_df["account_value"].pct_change(1)
+                value_returns_df["tc_cost"] = self.tc_cost_memory
                 info["value_returns_df"] = value_returns_df
                 # Last terminal we do not need weight
                 info["weights"] = None
@@ -188,9 +196,9 @@ class StockEnv(gym.Env):
             transaction_fee = sum(np.abs(pre_rebal_pos - new_desired_rebal_pos)*TRANSACTION_FEE_PERCENT)
 
             self.reward = ((end_total_asset - transaction_fee)/begin_total_asset) - 1 
-            self.rewards_memory.append(self.reward)
+            # self.rewards_memory.append(self.reward)
             self.asset_memory.append(end_total_asset)
-            self.reward = self.reward * REWARD_SCALING
+            self.tc_cost_memory.append(transaction_fee/begin_total_asset)
 
             # We also need to update new state
             self.state =  investable_new_weights.tolist() +\
@@ -200,12 +208,14 @@ class StockEnv(gym.Env):
                         self.data.adx.values.tolist() + \
                         [self.data.turbulence.values[0]]
 
-        info = {}
-        if not self.train_mode:
-            # Add weights for each asset: new_weight (post rebal weight), pre_weights = (pre rebal weight)
-            info["weights"] = self._pre_post_rebal_weights(self.data.Date.values[0], self.investable_tic, investable_new_weights, pre_rebal_pos)
-            # This is returned only in terminal state
-            info["value_returns_df"] = None
+            info = {}
+            if not self.train_mode:
+                # Add weights for each asset: new_weight (post rebal weight), pre_weights = (pre rebal weight)
+                info["weights"] = self._pre_post_rebal_weights(self.data.Date.values[0], self.investable_tic, investable_new_weights, pre_rebal_pos)
+                # This is returned only in terminal state
+                info["value_returns_df"] = None
+
+            self.reward = self.reward * REWARD_SCALING
 
         return self.state, self.reward, self.terminal,info
 
@@ -237,6 +247,40 @@ def train_A2C(env_train, model_name, timesteps=25000):
     # model.save(f"{config.TRAINED_MODEL_DIR}/{model_name}")
     print('Training time (A2C): ', (end - start) / 60, ' minutes')
     return model
+
+#------------------------------------------------------------------------------------------------
+def train_PPO(env_train, model_name, timesteps=50000):
+    """PPO model"""
+
+    start = time.time()
+    model = PPO2('MlpPolicy', env_train, ent_coef = 0.005, nminibatches = 8)
+    #model = PPO2('MlpPolicy', env_train, ent_coef = 0.005)
+
+    model.learn(total_timesteps=timesteps)
+    end = time.time()
+
+    #model.save(f"{config.TRAINED_MODEL_DIR}/{model_name}")
+    print('Training time (PPO): ', (end - start) / 60, ' minutes')
+    return model
+
+
+def train_DDPG(env_train, model_name, timesteps=10000):
+    """DDPG model"""
+
+    # add the noise objects for DDPG
+    n_actions = env_train.action_space.shape[-1]
+    param_noise = None
+    action_noise = OrnsteinUhlenbeckActionNoise(mean=np.zeros(n_actions), sigma=float(0.5) * np.ones(n_actions))
+
+    start = time.time()
+    model = DDPG('MlpPolicy', env_train, param_noise=param_noise, action_noise=action_noise)
+    model.learn(total_timesteps=timesteps)
+    end = time.time()
+
+    # model.save(f"{config.TRAINED_MODEL_DIR}/{model_name}")
+    print('Training time (DDPG): ', (end-start)/60,' minutes')
+    return model
+
 
 #------------------------------------------------------------------------------------------------
 def DRL_validation(model, test_data, test_env, test_obs) -> None:
@@ -287,9 +331,11 @@ def run_model():
     weights_df_list=[]
     sharpe_a2c_list=[]
 
-    debug_iter  = 0 # Just to have quick checks
+    model_retrain_dates_idx  = 0 # Just to have quick checks
     # VERSION 1. Lets live with one model only. Later we do ENSAMBLE
-    for model_retrain_date in model_retrain_dates:
+    for model_retrain_dates_idx in range(len(model_retrain_dates)):
+        model_retrain_date = model_retrain_dates[model_retrain_dates_idx]
+
         debug_iter += 1
 
         if debug_iter > 2:
@@ -298,41 +344,118 @@ def run_model():
 
         # Out of this historical data we reserve last 60 days for validation
         # and any date before that training
+        # The train data is from full history till the train_till_date
         train_till_date = model_retrain_date + timedelta(days=-VALIDATION_WINDOW)
 
         # Validation Range
         validation_from, validation_to = (train_till_date + timedelta(days=1), model_retrain_date)
 
-        # 1. select training data. The data is from full history till the model_retrain_date
+        # 1. Training/validation data.
         train_data = data.loc[data.Date <= train_till_date]
         print(f"train_data.shape={train_data.shape}")
-
-        # 2. Create the training env
-        params = {"investable_assets" : INVESTABLE_ASSETS, 'initial_account_balance': 1e6, "save_debug_files":SAVE_DEBUG_FILES}
-        env_train = DummyVecEnv([lambda: StockEnv(train_data, params)])
-
-        # 3. We train the model
-        train_from_date_str = datetime.strftime(train_data.Date.values[1],"%Y%m%d")        
-        train_till_date_str = datetime.strftime(train_data.Date.values[-1],"%Y%m%d")
-        model_name = "A2C_multiasset_{}_{}".format(train_from_date_str,train_till_date_str)
-        model_a2c = train_A2C(env_train, model_name, timesteps=25000)
-
-        # 4. We validate the model
-        # Setup
         validation_data = data.loc[(data.Date >= validation_from) & (data.Date <= validation_to)]
         print(f"validation_data.shape={validation_data.shape}")
+
+
+        # 2. Params for environment
+        params = {"investable_assets" : INVESTABLE_ASSETS, 
+                 'initial_account_balance': 1e6, 
+                 "save_debug_files":SAVE_DEBUG_FILES
+                 }
+
+
+        # A2C
+        # 3. We train/validate the model
+        params["train_mode"] = True        
+        env_train = DummyVecEnv([lambda: StockEnv(train_data, params)])
+        train_from_date_str = datetime.strftime(train_data.Date.values[1],"%Y%m%d")        
+        train_till_date_str = datetime.strftime(train_data.Date.values[-1],"%Y%m%d")
+        print(f"======A2C Training from:{train_from_date_str} to:{train_till_date_str}========")
+        model_name = "A2C_multiasset_{}_{}".format(train_from_date_str,train_till_date_str)
+        model_a2c = train_A2C(env_train, model_name, timesteps=25000)
+        del env_train
+
+        print(f"======A2C Validation from:{validation_from} to:{validation_to}========")
         params["train_mode"] = False
         env_val = DummyVecEnv([lambda: StockEnv(validation_data, params)])
         obs_val = env_val.reset()
-        value_returns_df, weights_df = DRL_validation(model=model_a2c, test_data=validation_data, test_env=env_val, test_obs=obs_val)
-        sharpe_a2c = get_sharpe(value_returns_df)
-        print(weights_df[weights_df.tic=="GLD"])
+        a2c_value_returns_df, a2c_weights_df = DRL_validation(model=model_a2c, test_data=validation_data, test_env=env_val, test_obs=obs_val)
+        # - get sharpe ratio etc
+        sharpe_a2c = get_sharpe(a2c_value_returns_df)
+        #print(a2c_weights_df[a2c_weights_df.tic=="GLD"])
         print(f"sharpe_a2c:{sharpe_a2c}")
-        value_returns_list.append(value_returns_df)
-        weights_df_list.append(weights_df)
-        sharpe_a2c_list.append(sharpe_a2c)
+        del env_val
 
-    value_returns_df = pd.concat(weights_df_list)
+        # PPO
+        print(f"======PPO Training from:{train_from_date_str} to:{train_till_date_str}========")
+        params["train_mode"] = True
+        model_name = "PPO_multiasset_{}_{}".format(train_from_date_str,train_till_date_str)
+        env_train = DummyVecEnv([lambda: StockEnv(train_data, params)])
+        model_ppo = train_PPO(env_train, model_name, timesteps=25000)
+        del env_train
+
+        print(f"======PPO Validation from:{validation_from} to:{validation_to}========")
+        params["train_mode"] = False
+        env_val = DummyVecEnv([lambda: StockEnv(validation_data, params)])
+        obs_val = env_val.reset()
+        ppo_value_returns_df, ppo_weights_df = DRL_validation(model=model_ppo, test_data=validation_data, test_env=env_val, test_obs=obs_val)
+        sharpe_ppo = get_sharpe(ppo_value_returns_df)
+        print(f"sharpe_ppo:{sharpe_ppo}")
+        del env_val
+
+        # DDPG
+        print(f"======DDPG Training from:{train_from_date_str} to:{train_till_date_str}========")
+        params["train_mode"] = True
+        model_name = "DDPG_multiasset_{}_{}".format(train_from_date_str,train_till_date_str)
+        env_train = DummyVecEnv([lambda: StockEnv(train_data, params)])
+        model_ddpg = train_DDPG(env_train, model_name, timesteps=25000)
+        del env_train
+
+        print(f"======DDPG Validation from:{validation_from} to:{validation_to}========")
+        params["train_mode"] = False
+        env_val = DummyVecEnv([lambda: StockEnv(validation_data, params)])
+        obs_val = env_val.reset()
+        ddpg_value_returns_df, ddpg_weights_df = DRL_validation(model=model_ddpg, test_data=validation_data, test_env=env_val, test_obs=obs_val)
+        sharpe_ddpg = get_sharpe(ddpg_value_returns_df)
+        print(f"sharpe_ddpg:{sharpe_ddpg}")
+        del env_val
+
+
+        1 + 2
+        # TRADE Till next model_retrain_date. ie. backtest
+        chosen_model = model_ppo
+
+        trade_till = None
+        if model_retrain_date == model_retrain_dates[-1]:
+            # If last training then trade till last
+            trade_till_date = data.Date.values[-1]
+        else:
+            # If not last training then trade till a day before next model training date
+            trade_till_date = model_retrain_dates[model_retrain_dates_idx+1] + timedelta(days=-1)
+        
+        trading_data = data.loc[(data.Date >= model_retrain_date) & (data.Date <= trade_till_date) ]
+
+
+        params["train_mode"] = False
+        env_trade = DummyVecEnv([lambda: StockEnv(trading_data, params)])
+        obs_trade = env_trade.reset()
+        # We run ne date less to test till last. The second last date is the termination date
+        dates = trading_data.Date.unique()
+        rewards, done, info = None, None, None
+        trading_weights_list = []
+        trading_value_returns_list = []
+        for dt in dates[0:(len(dates)-1)]:
+            action, _states = chosen_model.predict(obs_trade)
+            obs_trade, rewards, done, info = env_trade.step(action)
+            if info[0]['weights'] is not None:
+                trading_weights_list.append(info[0]['weights'])
+            if done[0]:
+                trading_value_returns_list.append(info[0]['value_returns_df'])
+        trading_weights_df = pd.concat(trading_weights_list)
+        trading_value_returns_df = pd.concat(trading_weights_list)
+
+
+    value_returns_df = pd.concat(value_returns_list)
     weights_df  = pd.concat(weights_df_list)
     print(sharpe_a2c_list)
     print("Writing value_returns_df.csv")
