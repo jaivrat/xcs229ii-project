@@ -37,7 +37,7 @@ INVESTABLE_ASSETS = dict(# Bonds
                           commodities = ["GLD"])
 
 # TRANSACTION FEE
-TRANSACTION_FEE_PERCENT = 0.001
+TRANSACTION_FEE_PERCENT = 0.0001 #1bps
 # Gamma or reward scaling 
 REWARD_SCALING = 1e-4
 
@@ -91,28 +91,20 @@ class StockEnv(gym.Env):
         self.terminal = False        
 
         self.data = self.df.loc[self.df.Date == self.df_unique_dates[0]]
-        # second line weights/$: TBD
-        bond_weight = 0.40
-        equity_weight = 0.60
-        commodity_weight = 0.00
-        # further distribution of state
-        bonds_distr_wt = [1.0/len(self.bonds) for _ in self.bonds]
-        equity_distr_wt = [1.0/len(self.equities) for _ in self.equities]
-        commodity_distr_wt = [1.0/len(self.commodities) for _ in self.commodities]
+
         # state:
-        # portfolio $ value => 1
-        # [bond_weight, equity_weight,  commodity_weight] => 3
         # bonds_distr_wt + equity_distr_wt + commodity_distr_wt => #bonds + #equities + #commodities
-        # close price values => self.data.shape[0]
         # macd.values.tolist() => self.data.shape[0]
         # rsi.values.tolist() => self.data.shape[0]
         # cci.values.tolist() => self.data.shape[0]
         # adx.values.tolist() => self.data.shape[0]
         # turbulence.values.tolist()=> 1  # only one turbulence value
-        self.state =  [self.params['initial_account_balance']]+\
-                      [bond_weight, equity_weight, commodity_weight] +\
-                      bonds_distr_wt + equity_distr_wt + commodity_distr_wt + \
-                      self.data.close.values.tolist() +\
+        bond_weight = 0.35
+        equity_weight = 0.60
+        commodity_weight = 0.05
+        self.state =  [bond_weight * 1.0/len(self.bonds) for _ in self.bonds] +\
+                      [equity_weight * 1.0/len(self.equities) for _ in self.equities] +\
+                      [commodity_weight * 1.0/len(self.commodities) for _ in self.commodities] +\
                       self.data.macd.values.tolist() + \
                       self.data.rsi.values.tolist() + \
                       self.data.cci.values.tolist() + \
@@ -120,13 +112,10 @@ class StockEnv(gym.Env):
                       [self.data.turbulence.values[0]]
 
         # Store once to quickly access later in step
-        self.state_offset_dict = dict( dollar_position = 0,
-                                       asset_class_weights = (1, 1+ self.num_asset_classes),
-                                       asset_distr_weights = (1+ self.num_asset_classes, 1+ self.num_asset_classes + len(self.investable_tic)),
-                                       close = (1+ self.num_asset_classes + len(self.investable_tic), 
-                                               1 + self.num_asset_classes + len(self.investable_tic) + self.data.shape[0])                    
+        self.state_offset_dict = dict( 
+                                       asset_distr_weights = (0, len(self.investable_tic))                    
                                      )
-                      
+
         # initialize reward
         self.reward = 0
         self.cost = 0
@@ -134,7 +123,7 @@ class StockEnv(gym.Env):
         # here we take 3 level of actions. 
         # First: set 3 elements are proportional weights of bond, equity and commodity
         # Second: next bonds_distr_wt + equity_distr_wt + commodity_distr_wt
-        self.action_space = spaces.Box(low = 0.00000001, high = 1, shape = (self.num_asset_classes + len(self.investable_tic),)) 
+        self.action_space = spaces.Box(low = 0.00000001, high = 1, shape = (len(self.investable_tic),))
         # observation_space: same as self.state - should correspond one to one  
         self.observation_space = spaces.Box(low=0, high=np.inf, shape = (len(self.state),))
         # memorize all the total balance change
@@ -142,15 +131,6 @@ class StockEnv(gym.Env):
         self.rewards_memory = []
         self.weights_memory = pd.DataFrame(columns=["Date"] + self.investable_tic)
 
-    def _sell_assets(self, action):
-        #TODO
-        1+2
-        pass
-
-    def _buy_assets(self, index, action):
-        #TODO
-        1+2
-        pass
 
     def step(self, actions):
         
@@ -163,32 +143,16 @@ class StockEnv(gym.Env):
         #    print("DEBUG: check why action becomes nan later")
         
         # beginning of period assets 
-        asset_class_weights = self.state[self.state_offset_dict['asset_class_weights'][0]:self.state_offset_dict['asset_class_weights'][1]]
-        asset_class_dist_weights = self.state[self.state_offset_dict['asset_distr_weights'][0]:self.state_offset_dict['asset_distr_weights'][1]]
-
-        # -- bond weights
-        bond_distr = np.array(asset_class_dist_weights[0:len(self.bonds)])
-        bond_distr = bond_distr/sum(bond_distr)
-        # -- equity weights
-        equity_distr = np.array(asset_class_dist_weights[len(self.bonds):len(self.bonds)+len(self.equities)])
-        equity_distr = equity_distr/sum(equity_distr)
-        # -- commodity weights
-        commod_distr = np.array(asset_class_dist_weights[(len(self.bonds)+len(self.equities)):(len(self.bonds)+len(self.equities)+len(self.commodities))])
-        commod_distr = commod_distr/sum(commod_distr)
+        investable_prev_weights = self.state[self.state_offset_dict['asset_distr_weights'][0]:self.state_offset_dict['asset_distr_weights'][1]]
+        investable_prev_weights = np.array(investable_prev_weights)/sum(investable_prev_weights)
+        begin_total_asset = self.asset_memory[self.day]
 
         self.day += 1
         self.data = self.df.loc[self.df.Date == self.df_unique_dates[self.day]]
 
-        investable_prev_weights = (asset_class_weights[0] *bond_distr).tolist() + \
-                                    (asset_class_weights[1] *equity_distr).tolist() + \
-                                    (asset_class_weights[2] *commod_distr).tolist()
         investable_returns = self.data.returns_close.values[0:len(self.investable_tic)] # note that it is already ordered in tic seq
-        
-        # Total return
-        total_returns = sum(investable_prev_weights * investable_returns)
-        begin_total_asset = self.state[0]
-        end_total_asset = begin_total_asset * ( 1.0 + total_returns)
-        pre_rebal_pos = np.array(investable_prev_weights) * begin_total_asset * (1.0 + investable_returns)
+        pre_rebal_pos = (investable_prev_weights * begin_total_asset) * (1.0 + investable_returns)
+        end_total_asset = sum(pre_rebal_pos)
 
 
         if self.terminal:   
@@ -217,45 +181,24 @@ class StockEnv(gym.Env):
             return self.state, self.reward, self.terminal, info
 
         else:
-            # This is not terminal date
-            # Action weight:
-            act_asset_class_weights = actions[0:self.num_asset_classes]
-            act_asset_class_weights = act_asset_class_weights/sum(act_asset_class_weights)
-            # bonds
-            act_bond_distr = actions[self.num_asset_classes:(self.num_asset_classes +len(self.bonds))]
-            # equities
-            act_eq_distr = actions[ self.num_asset_classes + len(self.bonds):self.num_asset_classes + len(self.bonds)+ len(self.equities)]
-            # commodities
-            act_commod_dist = actions[self.num_asset_classes + len(self.bonds)+ len(self.equities): 
-                                      self.num_asset_classes + len(self.bonds)+ len(self.equities) + len(self.commodities)]
-            # Normalize
-            act_bond_distr = act_bond_distr/sum(act_bond_distr)
-            act_eq_distr = act_eq_distr/sum(act_eq_distr)
-            act_commod_dist = act_commod_dist/sum(act_commod_dist)
 
-            investable_new_weights = np.array((act_asset_class_weights[0] *act_bond_distr).tolist() + \
-                                        (act_asset_class_weights[1] *act_eq_distr).tolist() + \
-                                        (act_asset_class_weights[2] *act_commod_dist).tolist())
-
-            
-            new_desired_rebal_pos = investable_new_weights * end_total_asset
+            investable_new_weights = actions[0:len(self.investable_tic)]
+            investable_new_weights = investable_new_weights/investable_new_weights.sum()
+            new_desired_rebal_pos  = investable_new_weights * end_total_asset
             transaction_fee = sum(np.abs(pre_rebal_pos - new_desired_rebal_pos)*TRANSACTION_FEE_PERCENT)
 
-            self.reward = (end_total_asset - begin_total_asset - transaction_fee)
+            self.reward = ((end_total_asset - transaction_fee)/begin_total_asset) - 1 
             self.rewards_memory.append(self.reward)
-            self.asset_memory.append(end_total_asset - transaction_fee)
+            self.asset_memory.append(end_total_asset)
             self.reward = self.reward * REWARD_SCALING
 
             # We also need to update new state
-            self.state =  [end_total_asset]+\
-                          act_asset_class_weights.tolist() +\
-                      act_bond_distr.tolist() + act_eq_distr.tolist() + act_commod_dist.tolist() + \
-                      self.data.close.values.tolist() +\
-                      self.data.macd.values.tolist() + \
-                      self.data.rsi.values.tolist() + \
-                      self.data.cci.values.tolist() + \
-                      self.data.adx.values.tolist() + \
-                      [self.data.turbulence.values[0]]
+            self.state =  investable_new_weights.tolist() +\
+                        self.data.macd.values.tolist() + \
+                        self.data.rsi.values.tolist() + \
+                        self.data.cci.values.tolist() + \
+                        self.data.adx.values.tolist() + \
+                        [self.data.turbulence.values[0]]
 
         info = {}
         if not self.train_mode:
@@ -340,8 +283,17 @@ def run_model():
     #    We will retrain our models after 60 business days
     model_retrain_dates = [ x[1] for x in enumerate(data.Date.unique()) if (x[0]+1)%RETRAIN_MODEL_CYCLE==0 ]
 
+    value_returns_list = []
+    weights_df_list=[]
+    sharpe_a2c_list=[]
+
+    debug_iter  = 0 # Just to have quick checks
     # VERSION 1. Lets live with one model only. Later we do ENSAMBLE
     for model_retrain_date in model_retrain_dates:
+        debug_iter += 1
+
+        if debug_iter > 2:
+            break
         print(f"Retraining model on {model_retrain_date}")
 
         # Out of this historical data we reserve last 60 days for validation
@@ -375,10 +327,19 @@ def run_model():
         value_returns_df, weights_df = DRL_validation(model=model_a2c, test_data=validation_data, test_env=env_val, test_obs=obs_val)
         sharpe_a2c = get_sharpe(value_returns_df)
         print(weights_df[weights_df.tic=="GLD"])
-        print("sharpe_a2c:{sharpe_a2c}")
+        print(f"sharpe_a2c:{sharpe_a2c}")
+        value_returns_list.append(value_returns_df)
+        weights_df_list.append(weights_df)
+        sharpe_a2c_list.append(sharpe_a2c)
 
+    value_returns_df = pd.concat(weights_df_list)
+    weights_df  = pd.concat(weights_df_list)
+    print(sharpe_a2c_list)
+    print("Writing value_returns_df.csv")
+    value_returns_df.to_csv('results/value_returns_df.csv', index=False)
+    print("Writing weights_df.csv")
+    weights_df.to_csv('results/weights_df.csv', index=False)
     pass
-
 
 
 if __name__ == "__main__":
