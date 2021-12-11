@@ -45,6 +45,10 @@ TRANSACTION_FEE_PERCENT = 0.0001 #1bps
 # Gamma or reward scaling 
 REWARD_SCALING = 1e-4
 
+# Set deprecated logging off.
+import tensorflow as tf
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+
 
 #------------------------------------------------------------------------------------------------
 class StockEnv(gym.Env):
@@ -53,7 +57,7 @@ class StockEnv(gym.Env):
         # TBD: Check if this env is created for each day of training.
         # My guess is that it is created once for each simulation history
         # For intermediate calls only the step is called
-        self._seed()
+        self._seed(144)
         self.params = params
 
         # If training mode, we don't need to return lots of information
@@ -183,58 +187,31 @@ class StockEnv(gym.Env):
         pre_rebal_pos = (investable_prev_weights * begin_total_asset) * (1.0 + investable_returns)
         end_total_asset = sum(pre_rebal_pos)
 
+        investable_new_weights = actions[0:len(self.investable_tic)]
+        investable_new_weights = investable_new_weights/investable_new_weights.sum()
+        new_desired_rebal_pos  = investable_new_weights * end_total_asset
 
-        if self.terminal:   
-            # TERMINAL DATE: This is terminal date
-            self.asset_memory.append(end_total_asset)
-            # There is no transaction cost as such on last day of observation
-            self.tc_cost_memory.append(np.NaN)
-            # print("Comes to Terminal")
-            #if self.params["save_debug_files"]:
-            #    # save files
-            #    value_returns_df = pd.DataFrame({"Date": self.df_unique_dates, "account_value":self.asset_memory})
-            #    value_returns_df['daily_return']=value_returns_df["account_value"].pct_change(1)
-            #    value_returns_df.to_csv('results/account_value_train.csv')
-            #    # save plot
-            #    plt.plot(df_total_value[["Date", "account_value"]].set_index("Date"), "r")
-            #    plt.savefig('results/account_value_train.png')
-            #    plt.close()
-            #    sharpe = (252**0.5)*df_total_value['daily_return'].mean()/ \
-            #                        df_total_value['daily_return'].std()
-            
-            info = {}
-            if not self.train_mode:
-                value_returns_df = pd.DataFrame({"Date": self.df_unique_dates, "account_value":self.asset_memory})
-                value_returns_df['daily_return']=value_returns_df["account_value"].pct_change(1)
-                value_returns_df["tc_cost"] = self.tc_cost_memory
-                info["value_returns_df"] = value_returns_df
-                # Last terminal we do not need weight
-                info["weights"] = None
-            return self.state, self.reward, self.terminal, info
+        transaction_fee = sum(np.abs(pre_rebal_pos - new_desired_rebal_pos)*TRANSACTION_FEE_PERCENT)
+        self.reward = ((end_total_asset - transaction_fee)/begin_total_asset) - 1 
+        # self.rewards_memory.append(self.reward)
+        self.asset_memory.append(end_total_asset)
+        self.tc_cost_memory.append(transaction_fee/begin_total_asset)
 
-        else:
+        # We also need to update new state
+        self.state =  self._state_creator(p_data_for_day = self.data, p_asset_weights_dict = None, p_asset_weights = investable_new_weights.tolist())
+        self.reward = self.reward * REWARD_SCALING
 
-            investable_new_weights = actions[0:len(self.investable_tic)]
-            investable_new_weights = investable_new_weights/investable_new_weights.sum()
-            new_desired_rebal_pos  = investable_new_weights * end_total_asset
-            transaction_fee = sum(np.abs(pre_rebal_pos - new_desired_rebal_pos)*TRANSACTION_FEE_PERCENT)
+        info = {}
+        if not self.train_mode:
+            # Add weights for each asset: new_weight (post rebal weight), pre_weights = (pre rebal weight)
+            info["weights"] = self._pre_post_rebal_weights(self.data.Date.values[0], self.investable_tic, investable_new_weights, pre_rebal_pos)
+            info["value_returns_df"] = None
 
-            self.reward = ((end_total_asset - transaction_fee)/begin_total_asset) - 1 
-            # self.rewards_memory.append(self.reward)
-            self.asset_memory.append(end_total_asset)
-            self.tc_cost_memory.append(transaction_fee/begin_total_asset)
-
-            # We also need to update new state
-            self.state =  self._state_creator(p_data_for_day = self.data, p_asset_weights_dict = None, p_asset_weights = investable_new_weights.tolist())
-
-            info = {}
-            if not self.train_mode:
-                # Add weights for each asset: new_weight (post rebal weight), pre_weights = (pre rebal weight)
-                info["weights"] = self._pre_post_rebal_weights(self.data.Date.values[0], self.investable_tic, investable_new_weights, pre_rebal_pos)
-                # This is returned only in terminal state
-                info["value_returns_df"] = None
-
-            self.reward = self.reward * REWARD_SCALING
+        if self.terminal and (self.train_mode == False):
+            value_returns_df = pd.DataFrame({"Date": self.df_unique_dates, "account_value":self.asset_memory})
+            value_returns_df['daily_return']=value_returns_df["account_value"].pct_change(1)
+            value_returns_df["tc_cost"] = self.tc_cost_memory
+            info["value_returns_df"] = value_returns_df
 
         return self.state, self.reward, self.terminal,info
 
@@ -264,7 +241,7 @@ def train_A2C(env_train, model_name, timesteps=25000):
     end = time.time()
 
     # model.save(f"{config.TRAINED_MODEL_DIR}/{model_name}")
-    print('Training time (A2C): ', (end - start) / 60, ' minutes')
+    print('Training time (A2C): ', np.round((end - start) / 60, 2), ' minutes')
     return model
 
 #------------------------------------------------------------------------------------------------
@@ -279,7 +256,7 @@ def train_PPO(env_train, model_name, timesteps=50000):
     end = time.time()
 
     #model.save(f"{config.TRAINED_MODEL_DIR}/{model_name}")
-    print('Training time (PPO): ', (end - start) / 60, ' minutes')
+    print('Training time (PPO): ', np.round((end - start) / 60, 2), ' minutes')
     return model
 
 
@@ -297,7 +274,7 @@ def train_DDPG(env_train, model_name, timesteps=10000):
     end = time.time()
 
     # model.save(f"{config.TRAINED_MODEL_DIR}/{model_name}")
-    print('Training time (DDPG): ', (end-start)/60,' minutes')
+    print('Training time (DDPG): ', np.round((end - start) / 60, 2),' minutes')
     return model
 
 
@@ -440,7 +417,7 @@ def run_model():
         # TRADE Till next model_retrain_date. ie. backtest
         chosen_model = model_ppo
 
-        trade_till = None
+        trade_till_date = None
         if model_retrain_date == model_retrain_dates[-1]:
             # If last training then trade till last
             trade_till_date = data.Date.values[-1]
@@ -464,7 +441,6 @@ def run_model():
             params['initial_account_balance'] = 1000000.0
             
 
-
         env_trade = DummyVecEnv([lambda: StockEnv(trading_data, params)])
         obs_trade = env_trade.reset()
         # We run ne date less to test till last. The second last date is the termination date
@@ -473,8 +449,9 @@ def run_model():
         for dt in dates[0:(len(dates)-1)]:
             action, _states = chosen_model.predict(obs_trade)
             obs_trade, rewards, done, info = env_trade.step(action)
-            if info[0]['weights'] is not None:
-                trading_weights_list.append(info[0]['weights'])
+            # save weights
+            trading_weights_list.append(info[0]['weights'])
+            # if it was terminal, save values of returns
             if done[0]:
                 trading_value_returns_list.append(info[0]['value_returns_df'])
 
