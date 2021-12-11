@@ -24,12 +24,12 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 
-# TO SAVE DEBUGGING FILE (will increase proocessing time)
+# TO SAVE DEBUGGING FILE (will increase processing time)
 SAVE_DEBUG_FILES = False
 # Working data with technical indicators
 WORKING_DATA_WITH_TE_PATH = "data/wd_te.csv"
 # We will retrain our models after 60 business days
-RETRAIN_MODEL_CYCLE = 60
+RETRAIN_MODEL_CYCLE = 365*4   #60 actual. TO save and quick dev, train every 4 years
 # Validation window
 VALIDATION_WINDOW = 60
 # Investable assets 
@@ -459,13 +459,21 @@ def run_model():
                 trading_value_returns_list.append(info[0]['value_returns_df'])
 
     # All dates loop ends here
+    # 1. Weights
     trading_weights_df = pd.concat(trading_weights_list)
+    
+    # 2. Value Save: Date  account_value  daily_return   tc_cost
     trading_value_returns_df  = pd.concat(trading_value_returns_list)
+    # some values have breaks because retrain boundaries - so we fill
+    trading_value_returns_df = trading_value_returns_df.fillna(method='ffill').drop_duplicates()
+
     print(sharpe_a2c_list)
     print("Writing trading_weights_df.csv")
     trading_weights_df.to_csv('results/trading_weights_df.csv', index=False)
     print("Writing trading_value_returns_df.csv")
     trading_value_returns_df.to_csv('results/trading_value_returns_df.csv', index=False)
+
+
     pass
 
 
