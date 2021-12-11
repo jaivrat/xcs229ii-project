@@ -29,7 +29,7 @@ SAVE_DEBUG_FILES = False
 # Working data with technical indicators
 WORKING_DATA_WITH_TE_PATH = "data/wd_te.csv"
 # We will retrain our models after 60 business days
-RETRAIN_MODEL_CYCLE = 365*4   #60 actual. TO save and quick dev, train every 4 years
+RETRAIN_MODEL_CYCLE = 90 #365*4   #60 actual. TO save and quick dev, train every 4 years
 # Validation window
 VALIDATION_WINDOW = 60
 # Investable assets 
