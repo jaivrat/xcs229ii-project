@@ -379,7 +379,8 @@ def run_model():
         print(f"sharpe_a2c:{sharpe_a2c}")
         del env_val
 
-        # PPO
+        # Unomment finally 
+        """ # PPO
         print(f"======PPO Training from:{train_from_date_str} to:{train_till_date_str}========")
         params["train_mode"] = True
         model_name = "PPO_multiasset_{}_{}".format(train_from_date_str,train_till_date_str)
@@ -411,11 +412,11 @@ def run_model():
         ddpg_value_returns_df, ddpg_weights_df = DRL_validation(model=model_ddpg, test_data=validation_data, test_env=env_val, test_obs=obs_val)
         sharpe_ddpg = get_sharpe(ddpg_value_returns_df)
         print(f"sharpe_ddpg:{sharpe_ddpg}")
-        del env_val
+        del env_val """
 
 
         # TRADE Till next model_retrain_date. ie. backtest
-        chosen_model = model_ppo
+        chosen_model = model_a2c
 
         trade_till_date = None
         if model_retrain_date == model_retrain_dates[-1]:
@@ -425,7 +426,9 @@ def run_model():
             # If not last training then trade till a day before next model training date
             trade_till_date = model_retrain_dates[model_retrain_dates_idx+1] + timedelta(days=-1)
         
-        trading_data = data.loc[(data.Date >= model_retrain_date) & (data.Date <= trade_till_date) ]
+        # Maximum date will which last trading happened, so that we seamlessly continue
+        trading_start_date = max(data.Date[data.Date < model_retrain_date])
+        trading_data = data.loc[(data.Date >= trading_start_date) & (data.Date <= trade_till_date) ]
 
 
         params["train_mode"] = False
