@@ -277,45 +277,6 @@ def train_model(env_train, p_model_name, timesteps=25000):
     print(f"Training time {p_model_name}: ", np.round((end - start) / 60, 2), ' minutes')
     return model
 
-# #------------------------------------------------------------------------------------------------
-# def train_A2C(env_train, model_name, timesteps=25000):
-#     """A2C model"""
-#     start = time.time()
-#     model = A2C('MlpPolicy', env_train, verbose=0)
-#     model.learn(total_timesteps=timesteps)
-#     end = time.time()
-#     # model.save(f"{config.TRAINED_MODEL_DIR}/{model_name}")
-#     print('Training time (A2C): ', np.round((end - start) / 60, 2), ' minutes')
-#     return model
-
-# #------------------------------------------------------------------------------------------------
-# def train_PPO(env_train, model_name, timesteps=50000):
-#     """PPO model"""
-#     start = time.time()
-#     model = PPO2('MlpPolicy', env_train, ent_coef = 0.005, nminibatches = 8)
-#     #model = PPO2('MlpPolicy', env_train, ent_coef = 0.005)
-#     model.learn(total_timesteps=timesteps)
-#     end = time.time()
-#     #model.save(f"{config.TRAINED_MODEL_DIR}/{model_name}")
-#     print('Training time (PPO): ', np.round((end - start) / 60, 2), ' minutes')
-#     return model
-
-
-# def train_DDPG(env_train, model_name, timesteps=10000):
-#     """DDPG model"""
-#     # add the noise objects for DDPG
-#     n_actions = env_train.action_space.shape[-1]
-#     param_noise = None
-#     action_noise = OrnsteinUhlenbeckActionNoise(mean=np.zeros(n_actions), sigma=float(0.5) * np.ones(n_actions))
-#     start = time.time()
-#     model = DDPG('MlpPolicy', env_train, param_noise=param_noise, action_noise=action_noise)
-#     model.learn(total_timesteps=timesteps)
-#     end = time.time()
-#     # model.save(f"{config.TRAINED_MODEL_DIR}/{model_name}")
-#     print('Training time (DDPG): ', np.round((end - start) / 60, 2),' minutes')
-#     return model
-
-
 #------------------------------------------------------------------------------------------------
 def drl_validation(model, test_data, test_env, test_obs) -> None:
     ###validation process###
@@ -357,10 +318,7 @@ def run_model():
     #    We will retrain our models after 60 business days
     model_retrain_dates = [ x[1] for x in enumerate(data.Date.unique()) if (x[0]+1)%RETRAIN_MODEL_CYCLE==0 ]
 
-    value_returns_list = []
-    weights_df_list=[]
-    sharpe_a2c_list=[]
-
+    # collect results in this
     trading_weights_list = []
     trading_value_returns_list = []
 
@@ -530,15 +488,13 @@ def run_model():
 
 if __name__ == "__main__":
     print("Running STONK trader model")
+    start = time.time()
     try:
         run_model()
     except Exception as e:
         print(f"Got exception : {e}")
         raise e
-    
+    end = time.time()
     print("Finished STONK trader model.")
-
-
-
+    print("Total Run time: ", np.round((end - start) / 60, 2), ' minutes')
     
-
