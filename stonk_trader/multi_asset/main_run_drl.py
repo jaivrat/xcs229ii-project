@@ -44,6 +44,10 @@ INVESTABLE_ASSETS = dict(# Bonds
 TRANSACTION_FEE_PERCENT = 0.0001 #1bps
 # Gamma or reward scaling 
 REWARD_SCALING = 1e-4
+# COVARIANCE CALCULATION WINDOW
+COV_WINDOW = 180
+# RISK AVERSION LAMBDA
+RISK_AVERSION_LAMBDA = 0.5
 
 # Set deprecated logging off.
 import tensorflow as tf
@@ -85,6 +89,12 @@ class StockEnv(gym.Env):
                       left_on = ["tic"], 
                       right_on = ["tic"])\
                      .sort_values(by=["Date","seq"])
+
+        # Save and order covariance matrix in order of assets
+        if self.params['risk_aversion'] > 0:
+            self.covmat = self.params['covmat']
+            col_correct_seq = np.array([np.where(self.covmat.columns == tic)[0][0] for tic in self.investable_tic])
+            self.covmat = self.covmat.iloc[col_correct_seq,col_correct_seq]
 
         self._common_init_reset()
         pass
@@ -172,6 +182,10 @@ class StockEnv(gym.Env):
 
         if np.isnan(actions).any():
                 print("DEBUG: check why action is nan")
+        if (actions < 0).any():
+                # If noisy action - mark it 0 (OrnsteinUhlenbeck noise from ddpg)
+                actions[actions<0] = 0
+                print("DEBUG: check why action is negative")
         #if self.day == 51:
         #    print("DEBUG: check why action becomes nan later")
         
@@ -193,6 +207,10 @@ class StockEnv(gym.Env):
 
         transaction_fee = sum(np.abs(pre_rebal_pos - new_desired_rebal_pos)*TRANSACTION_FEE_PERCENT)
         self.reward = ((end_total_asset - transaction_fee)/begin_total_asset) - 1 
+        if self.train_mode and (self.params['risk_aversion']>0):
+            # we want to punish more if high variance
+            self.reward  = self.reward - 0.5*self.params['risk_aversion'] * np.matmul(np.matmul(investable_new_weights.T, self.covmat),investable_new_weights)
+
         # self.rewards_memory.append(self.reward)
         self.asset_memory.append(end_total_asset)
         self.tc_cost_memory.append(transaction_fee/begin_total_asset)
@@ -367,10 +385,21 @@ def run_model():
         validation_data = data.loc[(data.Date >= validation_from) & (data.Date <= validation_to)]
         print(f"validation_data.shape={validation_data.shape}")
 
+        # We can create a covariance matrix for backtest and validation
+        # most appropriate will be covmat at validation start date
+        cov_calc_date = validation_from
+        cov_calc_start_date = cov_calc_date + timedelta(days=-COV_WINDOW)
+        subset = data.loc[(data.Date >= cov_calc_start_date)&(data.Date<=cov_calc_date)].dropna()
+        covmat = subset.pivot(index='Date', columns='tic', values='returns_close').cov()
+        del subset
+
+        
         # 2. Params for environment
         params = {"investable_assets" : INVESTABLE_ASSETS, 
                  'initial_account_balance': 1e6, 
-                 "save_debug_files":SAVE_DEBUG_FILES
+                 "save_debug_files":SAVE_DEBUG_FILES,
+                 "covmat":covmat,
+                 "risk_aversion": RISK_AVERSION_LAMBDA
                  }
 
         # A2C
@@ -489,11 +518,11 @@ def run_model():
     trading_value_returns_df = trading_value_returns_df.fillna(method='ffill').drop_duplicates()
 
     timestamp = datetime.now().strftime("%Y.%m.%d.%H%M%S")    
-    weight_file_path = f"results/{timestamp}_trading_weights_df_{RETRAIN_MODEL_CYCLE}_{VALIDATION_WINDOW}.csv"
+    weight_file_path = f"results/{timestamp}_trading_weights_df_{RETRAIN_MODEL_CYCLE}_{VALIDATION_WINDOW}_{RISK_AVERSION_LAMBDA}.csv"
     print(f"Writing weights: {weight_file_path}")
     trading_weights_df.to_csv(weight_file_path, index=False)
 
-    value_returns_filepath = f"results/{timestamp}_trading_value_returns_df_{RETRAIN_MODEL_CYCLE}_{VALIDATION_WINDOW}.csv"
+    value_returns_filepath = f"results/{timestamp}_trading_value_returns_df_{RETRAIN_MODEL_CYCLE}_{VALIDATION_WINDOW}_{RISK_AVERSION_LAMBDA}.csv"
     print(f"Writing value returns:{value_returns_filepath}")
     trading_value_returns_df.to_csv(value_returns_filepath, index=False)
     pass
@@ -501,7 +530,6 @@ def run_model():
 
 if __name__ == "__main__":
     print("Running STONK trader model")
-
     try:
         run_model()
     except Exception as e:
