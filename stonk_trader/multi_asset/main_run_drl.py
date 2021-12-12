@@ -267,13 +267,10 @@ def get_model(p_model_name, env_train):
 
 #------------------------------------------------------------------------------------------------
 def train_model(env_train, p_model_name, timesteps=25000):
-    """A2C model"""
     start = time.time()
     model = get_model(p_model_name, env_train)
     model.learn(total_timesteps=timesteps)
     end = time.time()
-
-    # model.save(f"{config.TRAINED_MODEL_DIR}/{model_name}")
     print(f"Training time {p_model_name}: ", np.round((end - start) / 60, 2), ' minutes')
     return model
 
