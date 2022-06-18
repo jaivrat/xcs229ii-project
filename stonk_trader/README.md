@@ -24,4 +24,4 @@ This is mentioned in last line of the rlproject_env.yaml file. Change it accordi
 `conda deactivate`
 
 ### 4. Install Kernel
-`python -m ipykernel install --user --name=rlproject
+`python -m ipykernel install --user --name=rlproject`
